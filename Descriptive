@@ -1,0 +1,1354 @@
+# Databricks notebook source
+# MAGIC 
+# MAGIC %md
+# MAGIC - Mikhail Stroev (stroev_mik@benley.edu)
+# MAGIC - Logan Turnbul (turnbul_loga@bentley.edu)
+# MAGIC - Thomas Smith (smith_thom@bentley.edu)
+
+# COMMAND ----------
+
+# MAGIC %md # Caravan EDA - MA710
+
+# COMMAND ----------
+
+# MAGIC %md ## Introduction
+
+# COMMAND ----------
+
+# MAGIC %md This data set used in the CoIL 2000 Challenge contains information on customers of an insurance company. The data consists of 86 variables and includes product usage data and socio-demographic data derived from zip area codes. The data was collected to answer the following question: Can you predict who would be interested in buying a caravan insurance policy and give an explanation why?
+
+# COMMAND ----------
+
+# MAGIC %md Documentation on the dataset can be found at:
+# MAGIC - https://www.kaggle.com/uciml/caravan-insurance-challenge/data
+
+# COMMAND ----------
+
+# MAGIC %md ## Loading Libraries
+
+# COMMAND ----------
+
+# Loading Libraries
+install.packages('nycflights13')
+install.packages('dplyr')
+install.packages('ggplot2')
+install.packages('readr')
+
+# COMMAND ----------
+
+# Loading all libraries
+library(readr)
+library(dplyr)
+library(ggplot2)
+library(dplyr)
+library(nycflights13)
+library(methods)
+library(magrittr)
+# library(ggrepel)
+library(magrittr)
+
+# COMMAND ----------
+
+# MAGIC %md ## Read Dataset
+
+# COMMAND ----------
+
+# MAGIC %md Read the dataset from the CSV file into the dataframe `caravan_df`.
+
+# COMMAND ----------
+
+#Reading the data set, (Removed origin: "train or test", as described above)
+'/dbfs/mnt/group-ma710/data/caravan-insurance-challenge.csv' %>%
+  read_csv() %>%
+  select(-ORIGIN) %>%
+  {.} -> caravan_df
+
+# Creating palettes if we want them
+cbPalette  <- c("#999999", "#E69F00", "#56B4E9", "#009E73", "#F0E442", "#0072B2", "#D55E00", "#CC79A7")
+cbbPalette <- c("#000000", "#E69F00", "#56B4E9", "#009E73", "#F0E442", "#0072B2", "#D55E00", "#CC79A7")
+
+# COMMAND ----------
+
+# MAGIC %md Check the structure of the dataframe to get a good overview of the variable types.
+
+# COMMAND ----------
+
+# Cheking the structure by str()
+str(caravan_df)
+
+# COMMAND ----------
+
+# MAGIC %md Checking missing values, magnitudes and parameters for all variables in the data set.
+
+# COMMAND ----------
+
+summary(caravan_df)
+
+# COMMAND ----------
+
+# MAGIC %md ##The dataset description.
+
+# COMMAND ----------
+
+# MAGIC %md 
+# MAGIC 
+# MAGIC The dataset describes customers of an insurance company. Each record describes a unique customer.  As an individual customer, the company considers a household or a small group of people, which were aggregated by unknown characteristics. 
+# MAGIC The dataset has three primary layers each of which consists of different type of variables and describes each customer from different angles.
+# MAGIC The first layer is the individual layer, which provides the description of a single customer:
+# MAGIC - ORIGIN: train or test, as described above (Which is out of our interests)
+# MAGIC - MOSTYPE: Customer Subtype; see L0 (Categorical Nominal)
+# MAGIC - MAANTHUI: Number of houses 1 - 10 (numerical)
+# MAGIC - MGEMOMV: Avg size household 1 - 6 (numerical)
+# MAGIC - MGEMLEEF: Avg age; see L1 (Categorical Ordinal )
+# MAGIC - MOSHOOFD: Customer main type; see L2  (Categorical nominal)
+# MAGIC 
+# MAGIC The second and the third layers give based on zip codes customer descriptions:
+# MAGIC - (1) Demographical "M" variables are the ordinal categorical variables, describing a demographical structure of each zip code where a customer resides. All of them were converted from continuous numerical variables into ordinal categorical ( later we are going to treat them as interval variables for clustering purposes), using the  L3: 10-steps scale with not even intervals. This coding diminishes their value as interval variables. 
+# MAGIC - (2)"Product P & A" variables are are the ordinal categorical variables, describing a "behavioral product" structure of each zip code where a customer resides. All of them were converted from continuous numerical variables into ordinal categorical ( later we are going to treat them as interval variables for clustering purposes), using the  L4: 10-steps scale with not even, almost logarithmical like, intervals. This coding diminishes their value as interval variables.  The difference between "P" and "A" variables ("Contribution" and "Number") is still unclear due to the absence of a proper dataset description.
+# MAGIC 
+# MAGIC The dataset includes one "response" variable "CARAVAN," which is a binary, by its nature, variable and three groups of variables. 
+# MAGIC 
+# MAGIC The "response" variable "CARAVAN," probably, is associated with the notion of level of interest toward a potential of buying a specific insurance policy.
+
+# COMMAND ----------
+
+# MAGIC %md ## Explore Single Variables
+# MAGIC 
+# MAGIC To familiarize ourself we the dataset structure and to explore who the customers of the company are we chose ten variables to dive deeper:
+# MAGIC - The "response" variable CARAVAN
+# MAGIC - Six variables that provide individual description of each customer
+# MAGIC - Three "product- behavior" variables.
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC There are two groups of variables to analyze
+# MAGIC 
+# MAGIC - CARAVAN: Number of mobile home policies 0 - 1 (binary)
+# MAGIC - MOSTYPE: Customer Subtype; see L0 (Categorical Nominal); see L0
+# MAGIC - MAANTHUI: Number of houses 1 - 10 (**numerical**) per household
+# MAGIC - **MGEMOMV: Avg size household 1 - 6 (numerical)** 
+# MAGIC - MGEMLEEF: Avg age per household; see L1 (Categorical Ordinal ); see L1
+# MAGIC - MOSHOOFD: Customer main type; see L2  (Categorical nominal)
+# MAGIC - MKOOPKLA: Purchasing power class per zip code (categorical ordinal)
+# MAGIC 
+# MAGIC Behavioral (to analyze their interaction with the response variable):
+# MAGIC - ABRAND: Number of fire policies
+# MAGIC - PPERSAUT: Contribution car policies
+# MAGIC - PBRAND: Contribution fire policies
+# MAGIC 
+# MAGIC They will give us a sense of the data set nature.
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ### CARAVAN 
+
+# COMMAND ----------
+
+# MAGIC %md Using summarize to calculate limits, mean and count
+
+# COMMAND ----------
+
+# Summary: "CARAVAN" (min, max, mean, count)
+caravan_df%>%
+  summarize(
+            min = min(CARAVAN, na.rm=TRUE),
+            max = max(CARAVAN, na.rm=TRUE),
+            mean = mean(CARAVAN, na.rm =TRUE),
+            count         = n()
+           )
+
+
+# COMMAND ----------
+
+# MAGIC %md CARAVAN assumes only "0" and "1" states; therefore it may be considered as a binary (logical) variable. Because we decided to treat it as a binary variable, considering the mean and other numerical descriptors does not do any good for us.
+
+# COMMAND ----------
+
+# MAGIC %md Drawing a pie chart (it suits better the binary character of the variable)
+
+# COMMAND ----------
+
+# Pie-chart for "caravan" looks more appropriate 
+# I'll probably add persentages later 
+caravan_df %>%  
+ggplot(aes(x= factor(1), fill= factor(CARAVAN))) +
+    geom_bar(width = 1) +   
+    coord_polar(theta = "y") +
+    scale_fill_manual(values=c("#999999", "#E69F00", "#56B4E9"))+
+    theme(legend.position="bottom")+
+    xlab('') +
+    ylab('') +
+    labs(fill='Number of mobile home policies')
+
+# COMMAND ----------
+
+# MAGIC %md It does not reveal very much, may be except visualizing how small is the part of observations where CARAVAN=1.
+
+# COMMAND ----------
+
+# MAGIC %md Calculating frequencies for CARAVAN
+
+# COMMAND ----------
+
+# Frequencies for "CARAVAN" (Since this is a categorical variable, let's calculate them)
+caravan_df %>%
+group_by(CARAVAN) %>%
+  summarise (n = n()) %>%
+    mutate(caravan_freq = n / sum(n)) %>%
+      {.} -> CARAVAN.fr
+CARAVAN.fr
+ 
+
+# COMMAND ----------
+
+# MAGIC %md The CARAVAN variable behaves as a binary variable, because it assumes only two states "0" or "1", which probably means "No" or "Yes".
+# MAGIC The dataset is highly biased toward non-CARAVAN "observations." It may cause problems later.
+# MAGIC The output shows that **94% (9236 counts)** of observations do not have mobile home policies while only **6% (586 count) do**. 
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC #Demographical variables
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ### MOSTYPE
+# MAGIC 
+# MAGIC **Nominal categorical.**
+# MAGIC 
+# MAGIC Customer Subtype includes 41 individual customer subtype according to the company's classification.
+# MAGIC This displays the group of which the customer belongs. 
+
+# COMMAND ----------
+
+# MAGIC %md Drawing a Bar-Chart MOSTYPE: Customer Subtype
+
+# COMMAND ----------
+
+labels_Type <- c("1:High Income expensive child", "2:Very Important Provincials", "3:High status seniors", "4:Affluent senior apartments" , "5:Mixed seniors" , "6:Career and childcare" , "7:Dinki's (double income no kids)", 
+          "8:Middle class families", "9:Modern, complete families" , "10:Stable family" , "11:Family starters" , "12:Affluent young families", "13:Young all american family" , "14:Junior cosmopolitan" , "15:Senior cosmopolitans",
+                 "16:Students in apartments" , 
+                   "17:Fresh masters in the city" , "18:Single youth" , "19:Suburban youth" , "20:Etnically diverse" , "21:Young urban have-nots" , "22:Mixed apartment dwellers" , 
+                 "23:Young and rising" , "24:Young, low educated" , "25:Young seniors in the city" ,
+                   "26:Own home elderly", "27:Seniors in apartments" , "28:Residential elderly" , "29:Porchless seniors: no front yard" , "30:Religious elderly singles" , 
+                 "31:Low income catholics" , "32:Mixed seniors" , "33:Lower class large families" , 
+                  "34:Large family, employed child" , "35:Village families", "36:Couples with teens 'Married with children" , "37:Mixed small town dwellers" , "38:Traditional families" , "39:Large religous families" , 
+                 "40:Large family farms" , "41:Mixed rurals")
+caravan_df %>%
+  ggplot  (aes(x   = factor(MOSTYPE))) +
+  geom_bar(aes(fill=factor(MOSTYPE)),width = 0.5) +
+  theme(legend.position="bottom")+
+  scale_fill_discrete(name = "     ", labels=labels_Type) +
+  xlab("Customer Subtype (see L0)") +
+guides(fill=guide_legend(nrow=12, byrow=TRUE))
+
+
+
+# COMMAND ----------
+
+# MAGIC %md The observed Customer Subtype distribution is far from looking normal (bell shape distribution). Records with "Lower class large families" dominate the dataset. It, probably, may reflect the fact that the dataset is biased due to sampling errors or something else. Zip codes with "Middle class families," "Traditional families", and "Large religious families"  represent the second and the third largest groups in the data set.
+# MAGIC 
+# MAGIC The most common customer type is the lower class large families. If this customer type is highly correlated with what we end up predicting, the resulting distribution will have a large impact on the model. Those customer types will small volume tend to be youth oriented like "Students in apartments," "Single youth," "suburban youth," and "Young urban have-nots." This kind of trend may have impacts on any further analysis should age become a factor.
+
+# COMMAND ----------
+
+# MAGIC %md Using summary to calculate limits and mean.
+
+# COMMAND ----------
+
+# Summary: "# Summary: "MOSTYPE" (min, max, mean, count)
+caravan_df%>%
+  summarize(
+            min = min(MOSTYPE, na.rm=TRUE),
+            max = max(MOSTYPE, na.rm=TRUE),
+            mean = mean(MOSTYPE, na.rm =TRUE),
+            count         = n()
+           )
+
+# COMMAND ----------
+
+# MAGIC %md It does not make much sense because the variable is a nominal categorical variable. Therefore we are not going to use this approach anymore.
+
+# COMMAND ----------
+
+# MAGIC %md Calculating frequency distribution, which is more appropriate for categorical variables.
+
+# COMMAND ----------
+
+# Frequencies for "MOSTYPE" (Since this is a categorical variable, let's calculate them)
+caravan_df %>%
+group_by(MOSTYPE) %>%
+  summarise (., n = n()) %>%
+    mutate(freq = n / sum(n)) %>%
+      {.} -> MOSTYPE.fr
+MOSTYPE.fr<-arrange(MOSTYPE.fr, desc(freq))
+MOSTYPE.fr
+
+# COMMAND ----------
+
+# MAGIC %md Plotting FQ distribution
+
+# COMMAND ----------
+
+MOSTYPE.fr$MOSTYPE <- factor(MOSTYPE.fr$MOSTYPE, levels = MOSTYPE.fr$MOSTYPE[order(-MOSTYPE.fr$freq)]) # reordering 
+MOSTYPE.fr %>%
+  ggplot  (aes(x= factor(MOSTYPE), y= freq)) +
+  geom_bar(stat = "identity") +   
+  scale_fill_manual(values=cbPalette) +
+xlab("Customer Subtype")
+
+# COMMAND ----------
+
+# MAGIC %md The first four classes represent 31.13% of the whole dataset. None of the rest classes presents more than 5% of the dataset. The smallest subtype in the dataset is "Suburban youth". This might have happened because they are not general insurance company customers and, therefore the company just hadn't had enough records in their database.
+
+# COMMAND ----------
+
+# MAGIC %md Drawing a Box Plot to dignose for outliers 
+
+# COMMAND ----------
+
+# Creating palettes if we want them
+cbPalette  <- c("#999999", "#E69F00", "#56B4E9", "#009E73", "#F0E442", "#0072B2", "#D55E00", "#CC79A7")
+caravan_df %>%
+  ggplot(aes(x=factor(CARAVAN),
+             y=MOSTYPE)) + 
+  geom_boxplot(aes(fill=factor(CARAVAN))) + 
+  scale_fill_manual(values=cbPalette) + ylab("Customer Subtype")
+
+# COMMAND ----------
+
+# MAGIC %md The boxplot does not show any signs of outlier.
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ### MAANTHUI
+# MAGIC 
+# MAGIC **Numerical**. 
+# MAGIC 
+# MAGIC Number of houses 1 - 10
+
+# COMMAND ----------
+
+# MAGIC %md Summarizing the Number of houses 
+
+# COMMAND ----------
+
+caravan_df%>%
+  summarize(
+            min = min(MAANTHUI, na.rm=TRUE),
+            max = max(MAANTHUI, na.rm=TRUE),
+            mean = mean(MAANTHUI, na.rm =TRUE),
+            std  = sd(MAANTHUI, na.rm =TRUE),
+            count         = n()
+           )
+
+
+# COMMAND ----------
+
+# MAGIC %md The summary shows that the MAANTHUI: Number of houses has the mean that is close to 1 and relatively small standard deviation. It indicates that the distribution is grouped around 1 and highly skewed. Whether it's necessary to use transformation to normalize it we will decide later. Even though it's highly skewed, the maximum value is 10, which is going to be an outlier.
+
+# COMMAND ----------
+
+cbPalette  <- c("#999999", "#E69F00", "#56B4E9", "#009E73", "#F0E442", "#0072B2", "#D55E00", "#CC79A7")
+caravan_df %>%
+  ggplot(aes(x=factor(CARAVAN),
+             y=MAANTHUI)) + 
+  geom_boxplot(aes(fill=factor(CARAVAN))) + 
+  scale_fill_manual(values=cbPalette) + ylab("Number of houses 1 - 10")
+
+# COMMAND ----------
+
+# MAGIC %md Here we see that anything bigger than 1 belongs to outliers group; however, we are going to keep them in the dataset. There's one more interesting fact - the customers who have more than three houses do not have CARAVAN policies. It might help us later.
+
+# COMMAND ----------
+
+# MAGIC %md Plotting a Histogram plot
+
+# COMMAND ----------
+
+# Bar-Chart MAANTHUI: Number of houses 1 - 10
+labels_Type <- c("1", "2", "3", "4", "5", "6" ,"7", "8","9", "10") # I'm not sure about this scale: It might be L4:
+caravan_df %>%
+  ggplot  (aes(x   = MAANTHUI)) +
+  geom_histogram(aes(fill=factor(MAANTHUI))) +theme(legend.position="bottom")+
+#  facet_grid(factor(CARAVAN)~.)+
+  scale_fill_discrete(name = "Number of houses:", labels=labels_Type) +
+  xlab("Number of houses 1 - 10")
+
+# COMMAND ----------
+
+# MAGIC %md As expected, most of the records have only one house. This variable will most likely not tell us much information due to the weighting of distribution here.
+
+# COMMAND ----------
+
+# MAGIC %md Calculating the frequency distribution
+
+# COMMAND ----------
+
+# Frequencies for "MAANTHUI" (Since this is a categorical variable, let's calculate them)
+caravan_df %>%
+group_by(MAANTHUI) %>%
+  summarise (n = n()) %>%
+    mutate(freq = n / sum(n)) %>%
+      {.} -> MAANTHUI.fr
+MAANTHUI.fr<-arrange(MAANTHUI.fr, desc(freq))
+MAANTHUI.fr
+
+# COMMAND ----------
+
+# MAGIC %md First, two groups represent more than 99% of the observations.
+
+# COMMAND ----------
+
+# MAGIC %md ### MGEMOMV: Avg size household 1 - 6 (numerical)
+# MAGIC Numerical. Should be correlated with Avg size household.
+
+# COMMAND ----------
+
+# MAGIC %md Summarizing the Number of houses 
+
+# COMMAND ----------
+
+caravan_df%>%
+  summarize(
+            min = min(MGEMOMV, na.rm=TRUE),
+            max = max(MGEMOMV, na.rm=TRUE),
+            mean = mean(MGEMOMV, na.rm =TRUE),
+            std  = sd(MGEMOMV, na.rm =TRUE),
+            count         = n()
+           )
+
+
+# COMMAND ----------
+
+# MAGIC %md The summary shows that the MGEMOMV: Average size of household has the mean that is close to 3. It indicates that the distribution is about been normal. 
+
+# COMMAND ----------
+
+cbPalette  <- c("#999999", "#E69F00", "#56B4E9", "#009E73", "#F0E442", "#0072B2", "#D55E00", "#CC79A7")
+caravan_df %>%
+  ggplot(aes(x=factor(CARAVAN),
+             y=MGEMOMV)) + 
+  geom_boxplot(aes(fill=factor(CARAVAN))) + 
+  scale_fill_manual(values=cbPalette) + ylab("Number of houses 1 - 10")
+
+# COMMAND ----------
+
+# MAGIC %md Here we see that anything bigger than 4 belongs to outliers group; however, we are going to keep them in the dataset. There's one more interesting fact - the customers who have average house hold size more than 5 do not have CARAVAN policies. It might help us later.
+
+# COMMAND ----------
+
+# MAGIC %md Plotting a Histogram plot
+
+# COMMAND ----------
+
+# Bar-Chart MAANTHUI: Number of houses 1 - 10
+labels_Type <- c("1", "2", "3", "4", "5", "6") # I'm not sure about this scale: It might be L4:
+caravan_df %>%
+  ggplot  (aes(x   = MGEMOMV)) +
+  geom_histogram(aes(fill=factor(MGEMOMV))) +theme(legend.position="bottom")+
+#  facet_grid(factor(CARAVAN)~.)+
+  scale_fill_discrete(name = "Number of houses:", labels=labels_Type) +
+  xlab("Number of houses 1 - 10")
+
+# COMMAND ----------
+
+# MAGIC %md As expected, most of the records have two and three average household sizes. This is pretty reasonable and might be correlated with the average age variable.
+
+# COMMAND ----------
+
+# MAGIC %md Calculating the frequency distribution
+
+# COMMAND ----------
+
+caravan_df %>%
+group_by(MGEMOMV) %>%
+  summarise (n = n()) %>%
+    mutate(freq = n / sum(n)) %>%
+      {.} -> MGEMOMV.fr
+MGEMOMV.fr<-arrange(MGEMOMV.fr, desc(freq))
+MGEMOMV.fr
+
+# COMMAND ----------
+
+# MAGIC %md First, two groups 2&3 represent more than 82% of the observations.
+
+# COMMAND ----------
+
+# MAGIC %md Q-Q plot 
+
+# COMMAND ----------
+
+qplot(sample = MGEMOMV, data = caravan_df)
+
+# COMMAND ----------
+
+# MAGIC %md The variable is discreet; therefore Q-Q plot to check normality does not produce anything useful.
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ### MGEMLEEF
+# MAGIC 
+# MAGIC **Ordinal categorical**. 
+# MAGIC Avg age: "1: 20-30 years", "2: 30-40 years", "3: 40-50 years", "4: 50-60 years", "5: 60-70 years", "6: 70-80 years"
+
+# COMMAND ----------
+
+# MAGIC %md Plotting a Bar Chart
+
+# COMMAND ----------
+
+# Bar-Chart MGEMLEEF: Avg age; see L1
+labels_Type <- c("1: 20-30 years", "2: 30-40 years", "3: 40-50 years", "4: 50-60 years", "5: 60-70 years", "6: 70-80 years")
+caravan_df %>%
+  ggplot  (aes(x   = factor(MGEMLEEF))) +
+  geom_bar(aes(fill=factor(MGEMLEEF))) +theme(legend.position="bottom")+
+  scale_fill_discrete(name = "Avg age:", labels=labels_Type) +
+xlab("Avg age.")
+
+# COMMAND ----------
+
+# MAGIC %md As expected, the distribution looks pretty bell-shaped. Age is an example of normally distributed value when there are no sample errors due to sampling procedure.
+
+# COMMAND ----------
+
+# MAGIC %md Summarizing 
+
+# COMMAND ----------
+
+# Summary: "# Summary: "MGEMLEEF" (min, max, mean, count)
+caravan_df%>%
+  summarize(
+            min = min(MGEMLEEF, na.rm=TRUE),
+            max = max(MGEMLEEF, na.rm=TRUE),
+            mean = mean(MGEMLEEF, na.rm =TRUE),
+            count         = n()
+           )
+
+# COMMAND ----------
+
+# MAGIC %md The mean relies about the third group, as it should be for a normally distributed value.
+
+# COMMAND ----------
+
+# MAGIC %md Calculating frequency distribution 
+
+# COMMAND ----------
+
+# Frequencies for "MGEMLEEF" (Since this is a categorical variable, let's calculate them)
+caravan_df %>%
+group_by(MGEMLEEF) %>%
+  summarise (n = n()) %>%
+    mutate(freq = n / sum(n)) %>%
+      {.} -> MGEMLEEF.fr
+labels_Type <- c("1: 20-30 years", "2: 30-40 years", "3: 40-50 years", "4: 50-60 years", "5: 60-70 years", "6: 70-80 years")
+MGEMLEEF.fr<-arrange(MGEMLEEF.fr, desc(freq))
+MGEMLEEF.fr$MGEMLEEF <- labels_Type[MGEMLEEF.fr$MGEMLEEF]
+MGEMLEEF.fr
+
+# COMMAND ----------
+
+# MAGIC %md The 40-50 years group represents the majority of the dataset, and altogether first three groups accountable for about 85% of the dataset. 
+# MAGIC 
+# MAGIC Similar to an observation above, the younger age group is under-represented in this data set, as are those 70 and older. 
+
+# COMMAND ----------
+
+# MAGIC %md Boxplotting variables to check for outliers.
+
+# COMMAND ----------
+
+# Creating palettes if we want them
+cbPalette  <- c("#999999", "#E69F00", "#56B4E9", "#009E73", "#F0E442", "#0072B2", "#D55E00", "#CC79A7")
+caravan_df %>%
+  ggplot(aes(x=factor(CARAVAN),
+             y=MGEMLEEF)) + 
+  geom_boxplot(aes(fill=factor(CARAVAN))) + 
+  scale_fill_manual(values=cbPalette) + ylab("Average Age 1 - 6")
+
+# COMMAND ----------
+
+# MAGIC %md Both groups have the same pattern with outliers for those who have the CARAVN policies and for those who do not.
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ### MOSHOOFD
+# MAGIC 
+# MAGIC **Nominal categorical**. 
+# MAGIC 
+# MAGIC Customer main type L2:
+# MAGIC 
+# MAGIC - Successful hedonists 
+# MAGIC - Driven Growers
+# MAGIC - Average Family
+# MAGIC - Career Loners
+# MAGIC - Living well
+# MAGIC - Cruising Seniors
+# MAGIC - Retired and Religeous
+# MAGIC - Family with grown ups
+# MAGIC - Conservative families
+# MAGIC - Farmers
+
+# COMMAND ----------
+
+# MAGIC %md Plotting a Bar Chart
+
+# COMMAND ----------
+
+labels_Type <- c("1: Successful hedonists", "2: Driven Growers", "3: Average Family", "4: Career Loners", "5: Living well", "6: Cruising Seniors", "7: Retired and Religeous",
+                 "8: Family with grown ups", "9: Conservative families", "10: Farmers")
+caravan_df %>%
+  ggplot  (aes(x   = factor(MOSHOOFD))) +
+  geom_bar(aes(fill=factor(MOSHOOFD))) +theme(legend.position="top")+
+  scale_fill_discrete(name = "Customer main type keys:", labels=labels_Type)+
+xlab("Customer main type.")
+
+# COMMAND ----------
+
+# MAGIC %md The "Customer Main Type" is not normally distributed, which is entirely usual for a nominal categorical variable.
+# MAGIC The "career Loners" is significantly underrepresented in the dataset, for unknown so far reasons.
+# MAGIC The most notable group is "Family with grown-ups," which apparently mirrors the age distribution. 
+# MAGIC The second size group is "Average Family" ( which is strange, but, probably, happened due to chosen classification rules).
+
+# COMMAND ----------
+
+# MAGIC %md Summarizing
+
+# COMMAND ----------
+
+# Summary: "# Summary: "MOSHOOFD" (min, max, mean, count)
+caravan_df%>%
+  summarize(
+            min = min(MOSHOOFD, na.rm=TRUE),
+            max = max(MOSHOOFD, na.rm=TRUE),
+            mean = mean(MOSHOOFD, na.rm =TRUE),
+            count         = n()
+           )
+
+# COMMAND ----------
+
+# MAGIC %md The mean is about the middle, which is unexpected and probably find its explanation somehow later.
+
+# COMMAND ----------
+
+# MAGIC %md Calculating frequency distribution 
+
+# COMMAND ----------
+
+# Frequencies for "MOSHOOFD" (Since this is a categorical variable, let's calculate them)
+caravan_df %>%
+group_by(MOSHOOFD) %>%
+  summarise (n = n()) %>%
+    mutate(freq = n / sum(n)) %>%
+      {.} -> MOSHOOFD.fr
+labels_Type <- c("Successful hedonists", "Driven Growers", "Average Family", "Career Loners", "Living well", "Cruising Seniors", "Retired and Religeous",
+                 "Family with grown ups", "Conservative families", "10: Farmers")
+MOSHOOFD.fr<-arrange(MOSHOOFD.fr, desc(freq))
+MOSHOOFD.fr$MOSHOOFD <- labels_Type[MOSHOOFD.fr$MOSHOOFD]
+MOSHOOFD.fr
+
+# COMMAND ----------
+
+# MAGIC %md The first three groups(Family with grownups, Average Family, Conservative families)  represent 54.14% of the dataset. The group "Career Loners" is almost zero. The major group is the "Family with grownups" group, which follows the age distribution and therefore these two variables are correlated.
+
+# COMMAND ----------
+
+# MAGIC %md Plotting frequency distribution
+
+# COMMAND ----------
+
+MOSHOOFD.fr$MOSHOOFD <- factor(MOSHOOFD.fr$MOSHOOFD, levels = MOSHOOFD.fr$MOSHOOFD[order(-MOSHOOFD.fr$freq)]) # reordering 
+MOSHOOFD.fr %>%
+  ggplot  (aes(x= MOSHOOFD, y= freq)) +
+  geom_bar(stat = "identity") +   
+  scale_fill_manual(values=cbPalette) +
+xlab("Customer main type.")
+
+# COMMAND ----------
+
+# MAGIC %md There's a "plato" where frequencies are relatively constant, after steadily decreasing for the first three groups: 
+# MAGIC - Successful hedonists" =0.097637956
+# MAGIC - Living well   940 0.095703523
+# MAGIC - Retired and Religeous   881 0.089696599
+# MAGIC - Driven Growers   827 0.084198738
+# MAGIC 
+# MAGIC Whether it means something or not, is still to find.
+
+# COMMAND ----------
+
+# Creating palettes if we want them
+cbPalette  <- c("#999999", "#E69F00", "#56B4E9", "#009E73", "#F0E442", "#0072B2", "#D55E00", "#CC79A7")
+caravan_df %>%
+  ggplot(aes(x=factor(CARAVAN),
+             y=MOSHOOFD)) + 
+  geom_boxplot(aes(fill=factor(CARAVAN))) + 
+  scale_fill_manual(values=cbPalette) + ylab("Customer Main Type 1 - 10")
+
+# COMMAND ----------
+
+# MAGIC %md There's no sign of outliers, the rest we are not going to analyze because it's a categorical variable.
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ### MKOOPKLA
+# MAGIC 
+# MAGIC **Interval or Ordinal Categorical.**
+# MAGIC 
+# MAGIC Purchasing power class L3: percentage 0: 0% 1: 1 - 10% 2: 11 - 23% 3: 24 - 36% 4: 37 - 49% 5: 50 - 62% 6: 63 - 75% 7: 76 - 88% 8: 89 - 99% 9: 100%
+# MAGIC 
+# MAGIC in the zipcode where the customer lives.
+
+# COMMAND ----------
+
+# MAGIC %md Plotting Bar Chart
+
+# COMMAND ----------
+
+labels_Proc <- c("0%", "1 - 10%", "11 - 23%", "24 - 36%", "37 - 49%", "50 - 62%", "63 - 75%", "76 - 88%", "89 - 99%", "100%") # I'm not sure about the scale 
+caravan_df %>%
+  ggplot  (aes(x   = factor(MKOOPKLA))) +
+  geom_bar(aes(fill=factor(MKOOPKLA))) +theme(legend.position="bottom")+
+  scale_fill_discrete(name = "Purchasing power class:", labels=labels_Proc)+
+xlab("Purchasing power class.")
+
+# COMMAND ----------
+
+# MAGIC %md Purchasing Power Class variable is not normally distributed, even though it has only one spike for 11-23% range.
+
+# COMMAND ----------
+
+# MAGIC %md Summarizing
+
+# COMMAND ----------
+
+# Summary: "MKOOPKLA" (min, max, mean, count)
+caravan_df%>%
+  summarize(
+            min = min(MKOOPKLA, na.rm=TRUE),
+            max = max(MKOOPKLA, na.rm=TRUE),
+            mean = mean(MKOOPKLA, na.rm =TRUE),
+            count         = n()
+           )
+
+# COMMAND ----------
+
+# MAGIC %md The mean is about the middle value for the variable since the maximum is equal 8. However, it's a categorical variable; therefore it's not something we can use.
+
+# COMMAND ----------
+
+# MAGIC %md Calculating frequency distribution 
+
+# COMMAND ----------
+
+# Frequencies for "MKOOPKLA" (Since this is a categorical variable, let's calculate them)
+caravan_df %>%
+group_by(MKOOPKLA) %>%
+  summarise (n = n()) %>%
+    mutate(freq = n / sum(n)) %>%
+      {.} -> MKOOPKLA.fr
+labels_Proc <- c("0%", "1 - 10%", "11 - 23%", "24 - 36%", "37 - 49%", "50 - 62%", "63 - 75%", "76 - 88%", "89 - 99%", "100%")
+MKOOPKLA.fr<-arrange(MKOOPKLA.fr, desc(freq))
+MKOOPKLA.fr$MKOOPKLA <- labels_Proc[MKOOPKLA.fr$MKOOPKLA]
+MKOOPKLA.fr
+
+# COMMAND ----------
+
+# MAGIC %md The majority of customers lives in zipcodes with 11-23% of purchasing power class. The next, by the size, the group is 50-62% purchasing power class.
+# MAGIC The first three groups represent 57.85% of the dataset, and they may be attributed to spans from 11 to 36% and 50-62%. After the third group, frequency declines slowly but steady. Zipcodes with zero percentage of purchasing power class accountable for 9.6% of records approximately.
+
+# COMMAND ----------
+
+# MAGIC %md Plotting frequency distribution
+
+# COMMAND ----------
+
+MKOOPKLA.fr$MKOOPKLA <- factor(MKOOPKLA.fr$MKOOPKLA, levels = MKOOPKLA.fr$MKOOPKLA[order(-MKOOPKLA.fr$freq)]) # reordering 
+MKOOPKLA.fr %>%
+  ggplot  (aes(x= MKOOPKLA, y= freq)) +
+  geom_bar(stat = "identity") +   
+  scale_fill_manual(values=cbPalette) +
+xlab("Purchasing power class.")
+
+# COMMAND ----------
+
+# MAGIC %md We, seemingly, have four groups, according to their size, in the dataset:
+# MAGIC - 11-23%
+# MAGIC - 24-36% & 50-62%
+# MAGIC - 0% & 37-49%
+# MAGIC - 1-10% & 63-75% & 76-88%
+# MAGIC 
+# MAGIC For unknown reason there's no group for values bigger than 88%.
+
+# COMMAND ----------
+
+# MAGIC %md Plotting Box plots to check for outliers.
+
+# COMMAND ----------
+
+# Creating palettes if we want them
+cbPalette  <- c("#999999", "#E69F00", "#56B4E9", "#009E73", "#F0E442", "#0072B2", "#D55E00", "#CC79A7")
+caravan_df %>%
+  ggplot(aes(x=factor(CARAVAN),
+             y=MKOOPKLA)) + 
+  geom_boxplot(aes(fill=factor(CARAVAN))) + 
+  scale_fill_manual(values=cbPalette) + ylab("Purchasing Power Class L3 1 - 9")
+
+# COMMAND ----------
+
+# MAGIC %md There are no outliers.
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC #Behavior variables:
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ### ABRAND: Number of fire policies
+# MAGIC 
+# MAGIC **Interval or Ordinal Categorical.**
+
+# COMMAND ----------
+
+# MAGIC %md Plotting a Bar Chart
+
+# COMMAND ----------
+
+labels_Num <- c("0: 0", "1: 1 - 49", "2: 50 - 99", "3: 100 - 199", "4: 200 - 499", "5: 500 - 999", "6: 1000 - 4999", "7: 5000 - 9999", "8: 10,000 - 19,999", "9: >= 20,000")
+caravan_df %>%
+  ggplot  (aes(x   = factor(ABRAND)) ) +
+  geom_bar(aes(fill=factor(ABRAND))) +theme(legend.position="top")+
+#  facet_grid(. ~ factor(CARAVAN))+
+  scale_fill_discrete(name = "Number of fire policies:", labels=labels_Num)+
+xlab("Number of fire policies.")
+
+# COMMAND ----------
+
+# MAGIC %md The variable is not normally distributed, and the distribution is highly skewed toward the right tail. I looks like a QiSquare distribution. 
+
+# COMMAND ----------
+
+# MAGIC %md Calculating frequency distribution.
+
+# COMMAND ----------
+
+caravan_df %>%
+group_by(ABRAND) %>%
+  summarise (n = n()) %>%
+    mutate(freq = n / sum(n)) %>%
+      {.} -> ABRAND.fr
+labels_Num <- c("0: 0", "1: 1 - 49", "2: 50 - 99", "3: 100 - 199", "4: 200 - 499", "5: 500 - 999", "6: 1000 - 4999", "7: 5000 - 9999", "8: 10,000 - 19,999", "9: >= 20,000")
+ABRAND.fr<-arrange(ABRAND.fr, desc(freq))
+ABRAND.fr$ABRAND <- labels_Num[ABRAND.fr$ABRAND+1] # add "1" because vector labels_Proc starts from "1" not "0" !
+ABRAND.fr
+
+# COMMAND ----------
+
+# MAGIC %md The first two groups 0 - 45,44% and 1-49 - 52.09% together comprise 97.53% of the dataset. The dataset looks highly biased. Almost half of the customers live in zipcodes with zero of "Number of fire policies". This is strange, may they use it for particular types of fire policies.
+
+# COMMAND ----------
+
+# MAGIC %md Because the distribution is highly skewed, there will be many outliers. Let's check this with the following Box Plot.
+
+# COMMAND ----------
+
+# Creating palettes if we want them
+cbPalette  <- c("#999999", "#E69F00", "#56B4E9", "#009E73", "#F0E442", "#0072B2", "#D55E00", "#CC79A7")
+caravan_df %>%
+  ggplot(aes(x=factor(CARAVAN),
+             y=ABRAND)) + 
+  geom_boxplot(aes(fill=factor(CARAVAN))) + 
+  scale_fill_manual(values=cbPalette) + ylab("REPLACE THIS")
+
+# COMMAND ----------
+
+# MAGIC %md This plot looks interesting. 
+# MAGIC - As expected anything else than zero and the first group (1-49) is outlier
+# MAGIC - The zipcodes with CARAVAN policy owners do not have any "Number of fire policies" bigger than 2!
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ### PPERSAUT: Contribution car policies 
+# MAGIC 
+# MAGIC **Interval or Ordinal Categorical.**
+# MAGIC Which way is better? I prefer ordinal categorical for analysis.
+
+# COMMAND ----------
+
+# MAGIC %md Bar-Chart PPERSAUT 
+
+# COMMAND ----------
+
+labels_Num <- c("0: 0", "1: 1 - 49", "2: 50 - 99", "3: 100 - 199", "4: 200 - 499", "5: 500 - 999", "6: 1000 - 4999", "7: 5000 - 9999", "8: 10,000 - 19,999", "9: >= 20,000")
+caravan_df %>%
+  ggplot  (aes(x   = factor(PPERSAUT)) ) +
+  geom_bar(aes(fill=factor(PPERSAUT))) +theme(legend.position="top")+
+#  facet_grid(. ~ factor(CARAVAN))+
+  scale_fill_discrete(name = "Contribution car policies:", labels=labels_Num)+
+xlab("Contribution car policies.")
+
+# COMMAND ----------
+
+# MAGIC %md We can distinguish two groups for Contribution car policies:
+# MAGIC - Zipcodes with zero policies
+# MAGIC - zipcodes with 1000-4999 policies
+# MAGIC 
+# MAGIC The first group is probably out of our interest because most probably people without cars won't buy a caravan insurance policy.
+
+# COMMAND ----------
+
+# MAGIC %md Calculating frequency distribution.
+
+# COMMAND ----------
+
+caravan_df %>%
+group_by(PPERSAUT) %>%
+  summarise (n = n()) %>%
+    mutate(freq = n / sum(n)) %>%
+      {.} -> PPERSAUT.fr
+labels_Num <- c("0: 0", "1: 1 - 49", "2: 50 - 99", "3: 100 - 199", "4: 200 - 499", "5: 500 - 999", "6: 1000 - 4999", "7: 5000 - 9999", "8: 10,000 - 19,999", "9: >= 20,000")
+PPERSAUT.fr<-arrange(PPERSAUT.fr, desc(freq))
+PPERSAUT.fr$PPERSAUT <- labels_Num[PPERSAUT.fr$PPERSAUT+1] # add "1" because vector labels_Proc starts from "1" not "0" !
+PPERSAUT.fr
+
+# COMMAND ----------
+
+# MAGIC %md It's obvious that :
+# MAGIC  - 0          4825 0.4912441458
+# MAGIC  - 2 1000 - 4999  3910 0.3980859295
+# MAGIC  - 3 500 - 999  1013 0.1031358176
+# MAGIC  
+# MAGIC combined responsible for about 99% of the observations in the dataset.
+# MAGIC 
+# MAGIC Perhaps, the should have performed discretization differently.
+
+# COMMAND ----------
+
+# MAGIC %md Plotting FQ distribution
+
+# COMMAND ----------
+
+PPERSAUT.fr$PPERSAUT <- factor(PPERSAUT.fr$PPERSAUT, levels = PPERSAUT.fr$PPERSAUT[order(-PPERSAUT.fr$freq)]) # reordering 
+PPERSAUT.fr %>%
+  ggplot  (aes(x= PPERSAUT, y= freq)) +
+  geom_bar(stat = "identity") +   
+  scale_fill_manual(values=cbPalette) +
+xlab("Contribution car policies.")
+
+# COMMAND ----------
+
+# MAGIC %md The graph illustrates the previous conclutions
+
+# COMMAND ----------
+
+# MAGIC %md Let's check the variable for outliers.
+
+# COMMAND ----------
+
+# Creating palettes if we want them
+cbPalette  <- c("#999999", "#E69F00", "#56B4E9", "#009E73", "#F0E442", "#0072B2", "#D55E00", "#CC79A7")
+caravan_df %>%
+  ggplot(aes(x=factor(CARAVAN),
+             y=PPERSAUT)) + 
+  geom_boxplot(aes(fill=factor(CARAVAN))) + 
+  scale_fill_manual(values=cbPalette) + ylab("Contribution Car Policies Range")
+
+# COMMAND ----------
+
+# MAGIC %md This is also interesting. The owners of the caravan insurance policy are grouped around 5: 500 - 999 and 6: 1000 - 4999 segments of Contribution car policies. It makes it helpful if we are going to build a classification model.
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ### PBRAND: Contribution fire policies 
+# MAGIC 
+# MAGIC **Interval or Ordinal Categorical.**
+
+# COMMAND ----------
+
+# MAGIC %md Bar-Chart PBRAND: Contribution fire policies
+
+# COMMAND ----------
+
+labels_Num <- c("0: 0", "1: 1 - 49", "2: 50 - 99", "3: 100 - 199", "4: 200 - 499", "5: 500 - 999", "6: 1000 - 4999", "7: 5000 - 9999", "8: 10,000 - 19,999", "9: >= 20,000")
+caravan_df %>%
+  ggplot  (aes(x   = factor(PBRAND)) ) +
+  geom_bar(aes(fill=factor(PBRAND))) +theme(legend.position="top")+
+#  facet_grid(. ~ factor(CARAVAN))+
+  scale_fill_discrete(name = "Contribution fire policies:", labels=labels_Num)+
+xlab("Contribution fire policies.")
+
+# COMMAND ----------
+
+# MAGIC %md The variable is not normally distributed, it has one massive spike at zero level, and the rest of it resembles a skewed normal distribution. The dominant group is the group with zero contribution fire policies. 
+
+# COMMAND ----------
+
+# MAGIC %md Calculating frequency distribution
+
+# COMMAND ----------
+
+caravan_df %>%
+group_by(PBRAND) %>%
+  summarise (n = n()) %>%
+    mutate(freq = n / sum(n)) %>%
+      {.} -> PBRAND.fr
+labels_Num <- c("0: 0", "1: 1 - 49", "2: 50 - 99", "3: 100 - 199", "4: 200 - 499", "5: 500 - 999", "6: 1000 - 4999", "7: 5000 - 9999", "8: 10,000 - 19,999", "9: >= 20,000")
+PBRAND.fr<-arrange(PBRAND.fr, desc(freq))
+PBRAND.fr$PBRAND <- labels_Num[PBRAND.fr$PBRAND+1] # add "1" because vector labels_Proc starts from "1" not "0" !
+PBRAND.fr
+
+# COMMAND ----------
+
+# MAGIC %md From the table, we see that zip codes with zero contribution fire policies comprise 45.44% of the dataset. The absolute majority, about 84%, of the records are grouped in the 0 to 499 ploicies span.
+
+# COMMAND ----------
+
+# MAGIC %md Plotting FQ distribution
+
+# COMMAND ----------
+
+PBRAND.fr$PBRAND <- factor(PBRAND.fr$PBRAND, levels = PBRAND.fr$PBRAND[order(-PBRAND.fr$freq)]) # reordering 
+PBRAND.fr %>%
+  ggplot  (aes(x= PBRAND, y= freq)) +
+  geom_bar(stat = "identity") +   
+  scale_fill_manual(values=cbPalette) +
+xlab("Contribution car policies.")
+
+# COMMAND ----------
+
+# MAGIC %md Ther's nothing really intersting in the plot.
+
+# COMMAND ----------
+
+# MAGIC %md Plotting the Box Plot
+
+# COMMAND ----------
+
+# Creating palettes if we want them
+cbPalette  <- c("#999999", "#E69F00", "#56B4E9", "#009E73", "#F0E442", "#0072B2", "#D55E00", "#CC79A7")
+caravan_df %>%
+  ggplot(aes(x=factor(CARAVAN),
+             y=PBRAND)) + 
+  geom_boxplot(aes(fill=factor(CARAVAN))) + 
+  scale_fill_manual(values=cbPalette) + ylab("C")
+
+# COMMAND ----------
+
+# MAGIC %md There are no outliers, and both parts of the plot look similar.
+
+# COMMAND ----------
+
+# MAGIC %md # Explore Multiple Variables
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ### MOSTYPE vs CARAVAN
+# MAGIC Customer Subtype vs Caravan
+
+# COMMAND ----------
+
+# MAGIC %md Plotting a Bar Chart to investigate possible interactions between Customer Subtype and Caravan
+
+# COMMAND ----------
+
+labels_Type <- c("1:High Income expensive child", "2:Very Important Provincials", "3:High status seniors", "4:Affluent senior apartments" , "5:Mixed seniors" , "6:Career and childcare" , "7:Dinki's (double income no kids)", 
+          "8:Middle class families", "9:Modern, complete families" , "10:Stable family" , "11:Family starters" , "12:Affluent young families", "13:Young all american family" , "14:Junior cosmopolitan" , "15:Senior cosmopolitans",
+                 "16:Students in apartments" , 
+                   "17:Fresh masters in the city" , "18:Single youth" , "19:Suburban youth" , "20:Etnically diverse" , "21:Young urban have-nots" , "22:Mixed apartment dwellers" , 
+                 "23:Young and rising" , "24:Young, low educated" , "25:Young seniors in the city" ,
+                   "26:Own home elderly", "27:Seniors in apartments" , "28:Residential elderly" , "29:Porchless seniors: no front yard" , "30:Religious elderly singles" , 
+                 "31:Low income catholics" , "32:Mixed seniors" , "33:Lower class large families" , 
+                  "34:Large family, employed child" , "35:Village families", "36:Couples with teens 'Married with children" , "37:Mixed small town dwellers" , "38:Traditional families" , "39:Large religous families" , 
+                 "40:Large family farms" , "41:Mixed rurals")
+caravan_df %>%
+  ggplot  (aes(x   = factor(MOSTYPE))) +
+  geom_bar(aes(fill=factor(MOSTYPE)),width = 0.5) +
+  theme(legend.position="bottom")+
+  facet_grid(factor(CARAVAN)~.,  scales = "free")+
+  scale_fill_discrete(name = "     ", labels=labels_Type) +
+  xlab("Customer Subtype (see L0)") +
+guides(fill=guide_legend(nrow=12, byrow=TRUE))
+
+
+# COMMAND ----------
+
+# MAGIC %md Customer Subtype vs Caravan graph shows that patterns for Customer Subtype different for different subgroups. We may see that Middle Class Families presented with the bigger spike (the scale was set free to better see patterns and to alleviate differences in scales so that we could focus on shape rather than on sizes). The difference in shape patterns for two subgroups may indicate a potentially significant variable for classification purposes. The similar difference in the shape we see for groups 22-26 and 1-2.
+
+# COMMAND ----------
+
+# MAGIC %md Plotting the same diagran, using fill insted of grid to compare patterns
+
+# COMMAND ----------
+
+## Bar-Chart MOSTYPE: vs Caravan (fill) Customer Subtype; see L0 (Version with CARAVAN distribution)
+labels_Type <- c("1:High Income expensive child", "2:Very Important Provincials", "3:High status seniors", "4:Affluent senior apartments" , "5:Mixed seniors" , "6:Career and childcare" , "7:Dinki's (double income no kids)", 
+          "8:Middle class families", "9:Modern, complete families" , "10:Stable family" , "11:Family starters" , "12:Affluent young families", "13:Young all american family" , "14:Junior cosmopolitan" , "15:Senior cosmopolitans",
+                 "16:Students in apartments" , 
+                   "17:Fresh masters in the city" , "18:Single youth" , "19:Suburban youth" , "20:Etnically diverse" , "21:Young urban have-nots" , "22:Mixed apartment dwellers" , 
+                 "23:Young and rising" , "24:Young, low educated" , "25:Young seniors in the city" ,
+                   "26:Own home elderly", "27:Seniors in apartments" , "28:Residential elderly" , "29:Porchless seniors: no front yard" , "30:Religious elderly singles" , 
+                 "31:Low income catholics" , "32:Mixed seniors" , "33:Lower class large families" , 
+                  "34:Large family, employed child" , "35:Village families", "36:Couples with teens 'Married with children" , "37:Mixed small town dwellers" , "38:Traditional families" , "39:Large religous families" , 
+                 "40:Large family farms" , "41:Mixed rurals")
+caravan_df %>%
+  ggplot  (aes(x   = factor(MOSTYPE))) +
+  geom_bar(aes(fill=factor(CARAVAN)),width = 0.5) +
+  theme(legend.position="bottom")+
+  scale_fill_discrete(name = "     ", labels=c("No (CARAVAN)", "Yes (CARAVAN)")) +
+  xlab("Customer Subtype (see L0)") +
+guides(fill=guide_legend(nrow=12, byrow=TRUE))
+
+
+
+
+# COMMAND ----------
+
+# MAGIC %md The diagram shows similar differences in patterns. However, they are much more difficult to notice due to different magnitudes of the two subsets. Once thing that is noticeable is how there's more Caravan responses for 33, meaning lower class large families. This makes sense as that is the type of family structure that would likely live in a mobile home and need mobile home insurance. It is also worth noting that this is the most common type of family structure, so whether it is valuable in further analysis will need to be determined.
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ### MKOOPKLA vs CARAVAN
+# MAGIC Purchasing power class vs CARAVAN
+
+# COMMAND ----------
+
+# MAGIC %md Plotting a Bar Chart to investigate possible interaction between Purchasing power class and CARAVAN
+
+# COMMAND ----------
+
+# Bar-Chart MKOOPKLA: (Grid) Purchasing power class ** Percentages in each group, per postal code (see L3)**:
+labels_Proc <- c("0%", "1 - 10%", "11 - 23%", "24 - 36%", "37 - 49%", "50 - 62%", "63 - 75%", "76 - 88%", "89 - 99%", "100%") # I'm not sure about the scale 
+caravan_df %>%
+  ggplot  (aes(x   = factor(MKOOPKLA))) +
+  geom_bar(aes(fill=factor(MKOOPKLA))) +theme(legend.position="bottom")+
+  facet_grid(factor(CARAVAN)~.,  scales = "free")+
+  scale_fill_discrete(name = "Purchasing power class:", labels=labels_Proc)+
+xlab("Purchasing power class.")
+
+# COMMAND ----------
+
+# MAGIC %md Customer Subtype vs Caravan graph shows that patterns for Customer Subtype different for different subgroups. We may see that 63-75% presented with the bigger spike (the scale was set free to better see patterns and to alleviate differences in scales so that we could focus on shape rather t
+# MAGIC han on sizes). The difference in shape patterns for two subgroups may indicate a potentially significant variable for classification purposes. The similar difference in the shape we see for groups 6 and 8.
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ### MOSHOOFD vs CARAVAN
+# MAGIC Customer main type vs CARAVAN
+
+# COMMAND ----------
+
+# MAGIC %md Plotting a Bar Chart to investigate possible interaction between Customer main type nad CARAVAN
+
+# COMMAND ----------
+
+# Bar-Chart MOSHOOFD: (Grid) Customer main type; see L2
+labels_Type <- c("1: Successful hedonists", "2: Driven Growers", "3: Average Family", "4: Career Loners", "5: Living well", "6: Cruising Seniors", "7: Retired and Religeous",
+                 "8: Family with grown ups", "9: Conservative families", "10: Farmers")
+caravan_df %>%
+  ggplot  (aes(x   = factor(MOSHOOFD))) +
+  geom_bar(aes(fill=factor(MOSHOOFD))) +theme(legend.position="top")+
+  facet_grid(factor(CARAVAN)~.,  scales = "free")+
+  scale_fill_discrete(name = "Customer main type keys:", labels=labels_Type)+
+xlab("Customer main type.")
+
+# COMMAND ----------
+
+# MAGIC %md Customer Subtype vs Caravan graph shows that patterns for Customer Subtype different for different subgroups. We may see that Driven Growers presented with the bigger spike (the scale was set free to better see patterns and to alleviate differences in scales so that we could focus on shape rather than on sizes). The difference in shape patterns for two subgroups may indicate a potentially significant variable for classification purposes. The similar difference in the shape we see for groups 4-6 and 1-2.
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ### MGEMLEEF vs CARAVAN
+# MAGIC Avg age vs CARAVAN
+
+# COMMAND ----------
+
+# MAGIC %md Plotting a Bar Chart to investigate possible interaction between Avg age and CARAVAN
+
+# COMMAND ----------
+
+# Bar-Chart MGEMLEEF:(Grid) Avg age; see L1
+labels_Type <- c("1: 20-30 years", "2: 30-40 years", "3: 40-50 years", "4: 50-60 years", "5: 60-70 years", "6: 70-80 years")
+caravan_df %>%
+  ggplot  (aes(x   = factor(MGEMLEEF))) +
+  geom_bar(aes(fill=factor(MGEMLEEF))) +theme(legend.position="bottom")+
+  facet_grid(factor(CARAVAN)~.,  scales = "free")+
+  scale_fill_discrete(name = "Avg age:", labels=labels_Type) +
+xlab("Avg age.")
+
+# COMMAND ----------
+
+# MAGIC %md There are no noticeable differences in the diagram pattern; hence the variable is going to be useless for classification purposes.
+
+# COMMAND ----------
+
+# MAGIC %md ##Exploring Multile VAriables VS CARAVAN
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ### ABRAND: vs PBRAND: vs CARAVAN
+# MAGIC Number of fire policies vs Contribution fire policies vs Percent CARAVAN per group
+
+# COMMAND ----------
+
+# MAGIC %md Plotting the map
+
+# COMMAND ----------
+
+labels_Num <- c("0: 0", "1: 1 - 49", "2: 50 - 99", "3: 100 - 199", "4: 200 - 499", "5: 500 - 999", "6: 1000 - 4999", "7: 5000 - 9999", "8: 10,000 - 19,999", "9: >= 20,000")
+caravan_df%>%
+  group_by (ABRAND, PBRAND) %>%
+  summarize(CAR_PR=mean(CARAVAN, na.rm=TRUE)) -> ABR_PBR.fr # Mean means percentage, since CARAVAN only 1 or 0.
+
+ABR_PBR.fr$ABRAND <- labels_Num[ABR_PBR.fr$ABRAND+1] # add "1" because vector labels_Proc starts from "1" not "0" !
+ABR_PBR.fr$PBRAND <- labels_Num[ABR_PBR.fr$PBRAND +1] 
+
+ABR_PBR.fr %>%
+  ggplot   (aes(x= ABRAND, y= PBRAND)) + 
+    geom_tile(aes(fill=CAR_PR),colour="white") + theme_minimal()+labs(title =" Number of fire policies vs Contribution fire policies vs Percent CARAVAN", x = "Number of fire policies", y = "Contribution fire policies") 
+
+# COMMAND ----------
+
+# MAGIC %md From the plot, we can see that the most significant frequency (15%) of CARAVAN appearance among all other groups have the zip codes when Number of fire policies belongs to the 50-99 span and "number" of contribution fire policies resides within 500-999. The second by CARAVAN appearance group is when contribution fire policies are in between 200-499 and number of fire policies is in 1-49 diapason. The range of 1-99 number of fire policies has the biggest number of CARAVN policy owners. There's no CARAVAN policy owner for the region where the number of fire policies is bigger than 100 or contribution fire policies are bigger than 5000. There are some empty spaces where there are no observations at all. For instance, the zone for the number of policies bigger than 100 and "number" of contribution policies smaller than 200.
+
+# COMMAND ----------
+
+# MAGIC %md Printing
+# MAGIC the matrix with first 15 frequencies
+
+# COMMAND ----------
+
+ABR_PBR.fr.tb <- arrange(tbl_df(ABR_PBR.fr), desc(CAR_PR))
+head(ABR_PBR.fr.tb, 15)
+
+
+# COMMAND ----------
+
+# MAGIC %md There are no observatoions for the following combinations of Number of fire policies & Contribution fire policies:
+# MAGIC - 1 - 49     7: 5000 - 9999 0.00000000
+# MAGIC - 1 - 49 8: 10,000 - 19,999 0.00000000
+# MAGIC - 50 - 99         2: 50 - 99 0.00000000
+# MAGIC - 50 - 99       3: 100 - 199 0.00000000
+# MAGIC - 50 - 99     7: 5000 - 9999 0.00000000
+
+# COMMAND ----------
+
+# MAGIC %md Finding all groups with CARAVAN frequency > 10%
+
+# COMMAND ----------
+
+ABR_PBR.fr.tb%>%
+  filter(CAR_PR > 0.1)
+
+# COMMAND ----------
+
+# MAGIC %md Only two combinations of Number of fire policies & Contribution fire policies have persentage of CARAVAN owners bigger than 10%:
+# MAGIC - 1  2: 50 - 99 5: 500 - 999 **17.85714%**
+# MAGIC - 2  1: 1 - 49 4: 200 - 499 **12.41276%**
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ### PPERSAUT: vs PBRAND: vs CARAVAN
+# MAGIC Contribution car policies vs Contribution fire policies vs Percent CARAVAN per group
+
+# COMMAND ----------
+
+# MAGIC %md Plotting the map
+
+# COMMAND ----------
+
+labels_Num <- c("0: 0", "1: 1 - 49", "2: 50 - 99", "3: 100 - 199", "4: 200 - 499", "5: 500 - 999", "6: 1000 - 4999", "7: 5000 - 9999", "8: 10,000 - 19,999", "9: >= 20,000")
+caravan_df%>%
+  group_by (PPERSAUT, PBRAND) %>%
+  summarize(CAR_PR=mean(CARAVAN, na.rm=TRUE)) -> PPE_PBR.fr # Mean means percentage, since CARAVAN only 1 or 0.
+
+PPE_PBR.fr$PPERSAUT <- labels_Num[PPE_PBR.fr$PPERSAUT+1] # add "1" because vector labels_Proc starts from "1" not "0" !
+PPE_PBR.fr$PBRAND <- labels_Num[PPE_PBR.fr$PBRAND +1] 
+
+PPE_PBR.fr %>%
+  ggplot   (aes(x= PPERSAUT, y= PBRAND)) + 
+    geom_tile(aes(fill=CAR_PR),colour="white") + theme_minimal()+labs(title =" Contribution car policies vs Contribution fire policies vs Percent CARAVAN", x = "Contribution car policies", y = "Contribution fire policies") 
+
+# COMMAND ----------
+
+# MAGIC %md From the plot, we can see that the most significant frequency (16%) of CARAVAN appearance among all other groups have the zip codes when contribution car policies belongs to the 1000-4999 span and "number" of contribution fire policies resides within 200-499. The second by CARAVAN appearance group is when contribution fire policies are in between 200-499 and number of contribution car policies is in 100-999 diapason. The range of 1000-4999 number of contribution car policies has the biggest number of CARAVN policy owners. There's no CARAVAN policy owner for the region where the number of contribution fire policies is equal 0 and contribution car policies are in between 200-499. There are some empty spaces where there are no observations at all. 
+
+# COMMAND ----------
+
+# MAGIC %md Printing
+# MAGIC the matrix with first 15 frequencies
+
+# COMMAND ----------
+
+PPE_PBR.fr.tb <- arrange(tbl_df(PPE_PBR.fr), desc(CAR_PR))
+head(PPE_PBR.fr.tb, 15)
+
+
+# COMMAND ----------
+
+# MAGIC %md The range of 1000-4999 number of contribution car policies has the biggest number of CARAVN policy owners.
+
+# COMMAND ----------
+
+# MAGIC %md Finding all groups with CARAVAN > 10% 
+
+# COMMAND ----------
+
+PPE_PBR.fr.tb%>%
+  filter(CAR_PR > 0.1)
+
+# COMMAND ----------
+
+# MAGIC %md Only four combinations of Contribution car policies & Contribution fire policies have persentage of CARAVAN owners bigger than 10%:
+# MAGIC - 1 6: 1000 - 4999 4: 200 - 499 0.1711555
+# MAGIC - 2 6: 1000 - 4999 3: 100 - 199 0.1367381
+# MAGIC - 3 6: 1000 - 4999 5: 500 - 999 0.1240310
+# MAGIC - 4 7: 5000 - 9999 4: 200 - 499 0.1052632
+# MAGIC and 1000-4999 range responsible for three out of four conbinations. It means that in classifcation task this variable mioght be helpful.
+
+# COMMAND ----------
+
+# MAGIC %md ## Conclusion
+# MAGIC 
+# MAGIC The CARAVAN variable behaves as a binary variable, because it assumes only two states "0" or "1", which probably means "No" or "Yes".
+# MAGIC The dataset is highly biased toward non-CARAVAN "observations."
+# MAGIC The output shows that **94% (9236 counts)** of observations do not have mobile home policies while only **6% (586 count) do have it.** 
+# MAGIC 
+# MAGIC ###Demographical variables:
+# MAGIC 
+# MAGIC The **most common customer type** in the dataset is the **lower class large families**. If this customer type is highly correlated with what we end up predicting, the resulting distribution will have a large impact on the model. Those customer types will small volume tend to be youth oriented like "Students in apartments," "Single youth," "suburban youth," and "Young urban have-nots." This kind of trend may have impacts on any further analysis should age become a factor.
+# MAGIC  None of the customers' subtypes presents more than 5% of the dataset. The **smallest subtype** in the dataset is **"Suburban youth"**. This might have happened because they are not general insurance company customers and, therefore the company just hadn't had enough records in their database.
+# MAGIC  The **Number of houses** has the **mean that is close to 1** and relatively small standard deviation. It indicates that **the distribution is grouped around 1** and highly skewed. Whether it's necessary to use transformation to normalize it we will decide later.
+# MAGIC  The records with **number of houses 1 or 2** represent **more than 99%** of the observations in the dataset.
+# MAGIC  The records with **average household size bigger than 4** belong to **outliers group**. **The customers who have average house hold size more than 5 do not have CARAVAN policies.** 
+# MAGIC  The records with **average household size  2 or 3** represent **more than 82%** of the observations in the dataset.
+# MAGIC  The **40-50 years** average age group represents **the majority of the dataset**, and altogether **three groups 30-60 years** accountable for about **85% of the dataset**. The **younger age group is under-represented** in this data set, as those who are **70 and older**.
+# MAGIC  The **Family with grownups**, **Average Family**, **Conservative families** groups represent **54.14% of the dataset**. The group **"Career Loners"** is **almost zero**. The major group is the "Family with grownups" group, which follows the age distribution and therefore these two variables are may be correlated.
+# MAGIC  The **majority of customers** lives in zipcodes with **11-23% of purchasing power class**. The next, by the size, the group is 50-62% purchasing power class. The first three groups represent **57.85% of the dataset**, and they may be attributed to spans **from 11 to 36% and 50-62%**. After the third group, frequency declines slowly but steady. Zipcodes with **zero percentage of purchasing power class accountable for 9.6%** of records approximately.
+# MAGIC  
+# MAGIC  ###Behavioral variables:
+# MAGIC  
+# MAGIC  The groups with **Number of fire policies 0 - 45,44% and 1-49 - 52.09%** together **comprise 97.53% of the dataset**. Almost **half of the customers** live in **zip codes with zero of "Number of fire policies"**.
+# MAGIC  The **zipcodes with CARAVAN policy owners** **do not have any "Number of fire policies" bigger than 2**. We can distinguish **two groups for Contribution car policies: Zipcodes with zero Contribution car policies and zipcodes with 1000-4999 Contribution car policies**, which when combines are responsible for **89% of the observations in the dataset**. **The owners of the caravan insurance policy are grouped around 5: 500 - 999 and 6: 1000 - 4999 segments of Contribution car policies**. 
+# MAGIC  The **zip codes with zero contribution fire policies comprise 45.44% of the dataset**. The absolute majority, about **84%, of the records** are grouped **in the 0 to 499 policies span**.
+# MAGIC  The most significant frequency (**15%**) of **CARAVAN** appearance among all other groups can be found in the zip codes **when Number of fire policies belongs to the 50-99 span and "number" of contribution fire policies resides within 500-999**. The second by CARAVAN appearance group is when contribution fire policies are in between 200-499 and number of fire policies is in 1-49 diapason. **The range of 1-99 number of fire policies** has **the biggest number of CARAVN policy owners**. There are **no CARAVAN policy owners** for the region where **the number of fire policies is bigger than 100 or contribution fire policies are bigger than 5000**. For instance, the zone for the number of policies bigger than 100 and "number" of contribution policies smaller than 200.
+# MAGIC  The most significant frequency (**16%**) of CARAVAN appearance among all other groups can be found in the zip codes where **contribution car policies belongs to the 1000-4999 span and "number" of contribution fire policies resides within 200-499**. The second by CARAVAN appearance group is when contribution fire policies are in between 200-499 and number of contribution car policies is in 100-999 diapason. The range of 1000-4999 number of contribution car policies has the biggest number of CARAVN policy owners. There are **no CARAVAN policy owners** for the regions where the **number of contribution fire policies is equal 0 and contribution car policies are in between 200-499**. 
+# MAGIC  
+# MAGIC  The dataset is a combination of numeric, like the number of houses or average household size, and different types of categorical variables.  Because only the first six variables represent a customer directly and the rest of them describe zip codes where a customer lives, we have to be cautious when we use them to describe customers. The "product variables" were coded into ordinal categorical by using the non-linear scale. This approach to discretize them is not the best, taking into consideration the different size of zip codes.
+# MAGIC  
+# MAGIC  
