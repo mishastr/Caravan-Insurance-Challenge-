@@ -1,0 +1,1031 @@
+# Databricks notebook source
+# MAGIC %md
+# MAGIC - Mikhail Stroev (stroev_mik@benley.edu)
+# MAGIC - Logan Turnbul (turnbul_loga@bentley.edu)
+# MAGIC - Thomas Smith (smith_thom@bentley.edu)
+
+# COMMAND ----------
+
+# MAGIC %md # Caravan Cluster Analysis - MA710
+
+# COMMAND ----------
+
+# MAGIC %md ## Introduction
+# MAGIC 
+# MAGIC Conducting cluster analysis, we hope to reveal groups of customers who have similar buying habits or demographics regarding buying the CARAVAN insurance policy. The secondary goal of our research is to describe the potential groups of customers to facilitate future classification of potential customers. As the source of customer data for clustering, we are going to use the CARAVAN dataset, which contains information on customers of an insurance company. We decided to conduct this research in two stages:
+# MAGIC - Researching individual customers attributes
+# MAGIC - Finding the best combination of "product" variables to form based on purchasing behavior groups of customers. As a result, we are looking to receive a several relatively homogeneous groups of customers to describe and later to use for classification purpose during customer ranking process.
+# MAGIC 
+# MAGIC Unfortunately, the "product" variables describe the whole zip codes where the company's customers live; aggregation information like this diminishes classification power of the clustering results. Nevertheless, we decided to perform this attempt.
+
+# COMMAND ----------
+
+# MAGIC %md ## Dataset Description
+
+# COMMAND ----------
+
+# MAGIC %md 
+# MAGIC The dataset describes customers of an insurance company. Each record describes a unique customer. As an individual customer, the company considers a household or a small group of people, which were aggregated by unknown characteristics. The dataset has three primary layers each of which consists of different type of variables and describes each customer from different angles. The first layer is the individual layer, which provides the description of a single customer:
+# MAGIC 
+# MAGIC - ORIGIN: train or test, as described above (Which is out of our interests)
+# MAGIC - MOSTYPE: Customer Subtype; see L0 (Categorical Nominal)
+# MAGIC - MAANTHUI: Number of houses 1 - 10 (numerical)
+# MAGIC - MGEMOMV: Avg size household 1 - 6 (numerical)
+# MAGIC - MGEMLEEF: Avg age; see L1 (Categorical Ordinal )
+# MAGIC - MOSHOOFD: Customer main type; see L2 (Categorical nominal)
+# MAGIC The second and the third layers give based on zip codes customer descriptions:
+# MAGIC 
+# MAGIC - (1) Demographical "M" variables are the ordinal categorical variables, describing a demographical structure of each zip code where a customer resides. All of them were converted from continuous numerical variables into ordinal categorical ( later we are going to treat them as interval variables for clustering purposes), using the L3: 10-steps scale with not even intervals. This coding diminishes their value as interval variables.
+# MAGIC - (2)"Product P & A" variables are are the ordinal categorical variables, describing a "behavioral product" structure of each zip code where a customer resides. All of them were converted from continuous numerical variables into ordinal categorical ( later we are going to treat them as interval variables for clustering purposes), using the L4: 10-steps scale with not even, almost logarithmical like, intervals. This coding diminishes their value as interval variables. The difference between "P" and "A" variables ("Contribution" and "Number") is still unclear due to the absence of a proper dataset description.
+# MAGIC The dataset includes one "response" variable "CARAVAN," which is a binary, by its nature, variable and three groups of variables.
+# MAGIC 
+# MAGIC The "response" variable "CARAVAN," probably, is associated with the notion of level of interest toward a potential of buying a specific insurance policy.
+# MAGIC  
+# MAGIC  ** TOTAL = 9822 observations**.
+
+# COMMAND ----------
+
+# MAGIC %md ## Load Libraries
+
+# COMMAND ----------
+
+# MAGIC %md Load the required libraries:
+# MAGIC - `dplyr`: supplies the dataframe functions
+# MAGIC - `ggplot2`: supplies the graphics functions
+# MAGIC - [add the cluster packages here]
+
+# COMMAND ----------
+
+#install.packages("arulesViz")
+install.packages("fpc")
+install.packages("dummies") #installing dummies
+install.packages("clustvarsel")
+
+#install_github("mhahsler/arulesViz")
+#install.packages('arulesViz')
+
+# COMMAND ----------
+
+# MAGIC %md What's going on with the cluster?
+# MAGIC It returns error every time I try to install arulesViz package.
+# MAGIC Last week it worked !?
+# MAGIC https://cran.r-project.org/web/packages/arulesViz/README.html
+
+# COMMAND ----------
+
+library(clustvarsel)
+library(ggplot2)
+library(dplyr)
+library(magrittr)
+library(cluster)
+library(clValid)
+library(dummies)
+library(arules)
+#library(arulesViz)
+
+# COMMAND ----------
+
+# MAGIC %md ## Read Dataset
+
+# COMMAND ----------
+
+# MAGIC %md Read the CSV file, create a dataframe, remove the `ORIGIN` variable from that dataframe and store the resulting dataframe in `caravan_df`.
+
+# COMMAND ----------
+
+'/dbfs/mnt/group-ma710/data/caravan-insurance-challenge.csv' %>%
+  read.csv() %>%
+  select(-ORIGIN) %>%
+  tbl_df() %>% 
+  {.} -> caravan_df
+class(caravan_df)
+
+# COMMAND ----------
+
+# MAGIC %md ## Cluster Analysis
+
+# COMMAND ----------
+
+# MAGIC %md __[REMOVE FROM REPORT]__ You will need to make the following choices: 
+# MAGIC - Which technique (R package) to use in creating cluster groups (options: `kmeans`, `pam`, `agnes`, `hclust`)
+# MAGIC - Which variables to use in creating cluster groups
+# MAGIC - Which variables are numeric (in which case they should be scaled)
+# MAGIC - Which variables are categorical (in which case you can either create binary variables or use cluster packages that accommodate categorical variables)
+# MAGIC - How many clusters to create in the cluster group
+# MAGIC 
+# MAGIC These choices (I'll call them "parameters" below) will determine a cluster group.
+
+# COMMAND ----------
+
+# MAGIC %md The list of variables for Researching individual customers attributes:
+# MAGIC - CARAVAN: Number of mobile home policies 0 - 1
+# MAGIC - MAANTHUI: Number of houses 1 - 10 (numerical) # It's correlated with avg size household ( the bigger household the more houses) DELETED
+# MAGIC - MGEMOMV: Avg size household 1 - 6 (numerical)
+# MAGIC - MGEMLEEF: Avg age; see L1 (Categorical Ordinal ) 
+# MAGIC - MOSHOOFD: Customer main type; see L2  (Categorical nominal) (edited) 
+
+# COMMAND ----------
+
+# MAGIC %md Creating subset with these 5 variables only.
+# MAGIC 
+# MAGIC Converting Nominal Catgorical variables into dummy.
+# MAGIC 
+# MAGIC Using the `dummies` package to create binary variables from factor variables. 
+# MAGIC 
+# MAGIC Normalizing numerical variables
+
+# COMMAND ----------
+
+sel.set <- c("MGEMOMV", "MGEMLEEF", "MOSHOOFD", "MAANTHUI", "CARAVAN")
+select(caravan_df, sel.set) -> sel.caravan_df
+sel.caravan_df$MGEMLEEF <- as.factor(sel.caravan_df$MGEMLEEF)
+sel.caravan_df$MOSHOOFD <- as.factor(sel.caravan_df$MOSHOOFD)
+
+# Creating dummy for MGEMLEEF
+levels(sel.caravan_df$MGEMLEEF) <-c("20-30 years",
+                              "30-40 years",
+                              "40-50 years",
+                              "50-60 years",
+                              "60-70 years",
+                              "70-80 years")
+
+dummy.MGEMLEEF <- dummy(sel.caravan_df$MGEMLEEF, sep = ":")
+# Creating dummy for MOSHOOFD
+levels(sel.caravan_df$MOSHOOFD) <-c("Successful hedonists",
+                                         "Driven Growers",
+                                         "Average Family",
+                                         "Career Loners",
+                                         "Living well",
+                                         "Cruising Seniors",
+                                         "Retired and Religious",
+                                         "Family with grown ups",
+                                         "Conservatie Families",
+                                         "Farmers")
+
+dummy.MOSHOOFD <- dummy(sel.caravan_df$MOSHOOFD, sep = ":")
+cbind(sel.caravan_df, dummy.MOSHOOFD, dummy.MGEMLEEF) -> sel.caravan_df 
+# Standardize the  data data
+sel.caravan_df[,c("MGEMOMV.sc","MAANTHUI.sc")] <- as.matrix(scale(sel.caravan_df[,c("MGEMOMV","MAANTHUI")]))
+str(sel.caravan_df)
+
+# COMMAND ----------
+
+# MAGIC %md Finding the optimal number of clusters
+
+# COMMAND ----------
+
+# MAGIC %md Looking for the best number of clusters in our sub set and the best clustering method.
+
+# COMMAND ----------
+
+sel.caravan_df %>%
+  select(-c(1:4)) %>% #excluding OLD factors
+  clValid(nClust=2:5, clMethods=c('kmeans','pam', 'hierarchical'),validation='internal', maxitems = 9900) %>%
+  {.} -> clValid_results
+summary(clValid_results)
+
+# COMMAND ----------
+
+# MAGIC %md **"TWO"** looks like the most appropriate number of clusters for Researching individual customers attributes.
+# MAGIC The preferable method - **hierarchical**; however, we need to check k-means method too because it showed up as one of the best methods according to Dunn index that describes a level of cluster compactness.
+
+# COMMAND ----------
+
+# MAGIC %md Building **5** k-means clusters.
+
+# COMMAND ----------
+
+sel.caravan_df %>%
+  select(-c(1:4)) %>% #excluding "CARAVAN"
+  kmeans(centers=5) %>%
+  {.} -> kmeans.out
+clusplot(sel.caravan_df, kmeans.out$cluster, color=TRUE, shade=TRUE, labels=2, lines=0, plotchar=FALSE)
+
+# COMMAND ----------
+
+# MAGIC %md ##Plotting results
+
+# COMMAND ----------
+
+# MAGIC %md Plotting silhouette plot 
+
+# COMMAND ----------
+
+dist.mat <- daisy(select(sel.caravan_df, -c(1:5))) 
+#dist.mat2<- dist.mat^2 # Should we square for k-mean?
+   silhouette(kmeans.out$cluster, dist.mat) -> sel.caravan.sil
+plot(sel.caravan.sil)
+
+# COMMAND ----------
+
+summary(sel.caravan.sil)
+
+# COMMAND ----------
+
+# MAGIC %md The results are discouraging each of our two clusters has Silhouette width smaller than 0.5 which indicates that the structure is weak and could be artificial. The second cluster has width smaller than 0.25, which indicates that no substantial structure has been found.
+
+# COMMAND ----------
+
+# MAGIC %md __Cluster Group__: [Household parameters]
+# MAGIC - Technique: k-means
+# MAGIC Parameters:
+# MAGIC - Number of clusters: **5**
+# MAGIC - Connectivity: 
+# MAGIC - Silhouette width: **0.24**
+# MAGIC - Dunn index: **0.3577**
+# MAGIC - Characterization: 
+# MAGIC - Evaluation: Rejected to investigate further.
+
+# COMMAND ----------
+
+# MAGIC %md ##Using "hclust" method on the same dataset 
+# MAGIC 
+# MAGIC Building **2** hclust clusters.
+
+# COMMAND ----------
+
+# MAGIC %md Rebuilding subset, just to start from a clean slot
+
+# COMMAND ----------
+
+sel.set <- c("MGEMOMV", "MGEMLEEF", "MOSHOOFD", "MAANTHUI", "CARAVAN") #We are not going to use CARAVAN for clustering, only for graphs
+select(caravan_df, sel.set) -> sel.caravan_df
+sel.caravan_df$MGEMLEEF <- as.factor(sel.caravan_df$MGEMLEEF)
+sel.caravan_df$MOSHOOFD <- as.factor(sel.caravan_df$MOSHOOFD)
+
+# Creating dummy for MGEMLEEF
+levels(sel.caravan_df$MGEMLEEF) <-c("20-30 years",
+                              "30-40 years",
+                              "40-50 years",
+                              "50-60 years",
+                              "60-70 years",
+                              "70-80 years")
+
+dummy.MGEMLEEF <- dummy(sel.caravan_df$MGEMLEEF, sep = ":")
+# Creating dummy for MOSHOOFD
+levels(sel.caravan_df$MOSHOOFD) <-c("Successful hedonists",
+                                         "Driven Growers",
+                                         "Average Family",
+                                         "Career Loners",
+                                         "Living well",
+                                         "Cruising Seniors",
+                                         "Retired and Religious",
+                                         "Family with grown ups",
+                                         "Conservatie Families",
+                                         "Farmers")
+
+dummy.MOSHOOFD <- dummy(sel.caravan_df$MOSHOOFD, sep = ":")
+cbind(sel.caravan_df, dummy.MOSHOOFD, dummy.MGEMLEEF) -> sel.caravan_df 
+# Standardize the  data data
+sel.caravan_df[,c("MGEMOMV.sc","MAANTHUI.sc")] <- as.matrix(scale(sel.caravan_df[,c("MGEMOMV","MAANTHUI")]))
+str(sel.caravan_df)
+
+# COMMAND ----------
+
+# MAGIC %md Using Hclust method, building the whole dendrogramm.
+
+# COMMAND ----------
+
+# Using Hclust method
+dist.mat <- dist(select(sel.caravan_df, -c(1:4))) 
+sel.caravan_df.hc <- hclust(dist.mat)
+plot(sel.caravan_df.hc, label=sel.caravan_df$C)
+
+# COMMAND ----------
+
+# MAGIC %md The dendrogram looks disproportional and skewed. 
+# MAGIC It's complitely unreadable and we need to cut it.
+
+# COMMAND ----------
+
+# MAGIC %md Plotting Silhoutte plot for "hclust" cutted to 2 clusters
+
+# COMMAND ----------
+
+sel.caravan_df$hclust.cluster =
+  factor(cutree(sel.caravan_df.hc,k=2))
+   silhouette(as.numeric(sel.caravan_df$hclust.cluster), dist.mat) -> sel.caravan.sil
+plot(sel.caravan.sil)
+
+# COMMAND ----------
+
+# MAGIC %md Even though it has a decent width, it's unusable because one of two clusters includes only 18 instances whereas the rest 9810 belong to the other cluster.
+
+# COMMAND ----------
+
+# MAGIC %md Summarizing results of Silhouette fucntion
+
+# COMMAND ----------
+
+summary(sel.caravan.sil)
+
+# COMMAND ----------
+
+# MAGIC %md __Cluster Group__: [Household parameters]
+# MAGIC - Technique: hclust
+# MAGIC Parameters:
+# MAGIC - Number of clusters: **2**
+# MAGIC - Connectivity: **3.2889**
+# MAGIC - Silhouette width: **0.83**
+# MAGIC - Dunn index: **0.2380**
+# MAGIC - Characterization: 
+# MAGIC - Evaluation: **Despite right parameters, we decided not to pursue this variable set because the results are not actionable and do not contain any business relevant knowledge.**
+
+# COMMAND ----------
+
+# MAGIC %md ###The "product variables" may reveal more interesting patterns.
+
+# COMMAND ----------
+
+# MAGIC %md Using clustvarsel() to find the most helpful for clustering variables. We excluded the variables, which we have used for the first attempt.
+# MAGIC 
+# MAGIC Selecting the subset and normalizing data.
+# MAGIC It was done using several iterations due to unknown limitations.
+
+# COMMAND ----------
+
+#Create subset 
+select(caravan_df, c(AWAPART,APERSAUT,AMOTSCO,AAANHANG,ALEVEN,
+                     ABRAND,APLEZIER,AINBOED)) -> sel1.caravan_df
+  sel1.caravan_df[sample(nrow(sel1.caravan_df), 1000), ] -> sel1.caravan_df # sample of 1000 it does not work with bigger samples 
+# Standardize the  data data
+sel1.caravan_df[,] <- as.matrix(scale(sel1.caravan_df[,]))
+str(sel1.caravan_df)
+
+# COMMAND ----------
+
+# MAGIC %md Selecting variables for clustering
+
+# COMMAND ----------
+
+sel1.caravan_df%>%
+  clustvarsel(., verbose = TRUE) 
+
+# COMMAND ----------
+
+# MAGIC %md Selected subsets: 
+# MAGIC - APERSAUT, AAANHANG
+# MAGIC - ALEVEN, AMOTSCO
+# MAGIC - ALEVEN, AAANHANG
+# MAGIC - ALEVEN, APLEZIER
+
+# COMMAND ----------
+
+# MAGIC %md **Note:**
+# MAGIC Probably, it's possible to use the whole set of RHS variables, which we received from our previous step where we were trying to find association rules in the dataset. It's possible because RHS indicates the set of variables, especially when a lift is higher than 1, with which many other variables are correlated. Hence we could use them as a source for our clustering "undertaking". However, we decided to focus our efforts on using clustervarsel() function due to lack of time to conduct a comprehensive dataset research.
+
+# COMMAND ----------
+
+# MAGIC %md Creating a subset, 
+# MAGIC Standardazing the data
+
+# COMMAND ----------
+
+#Create subset 
+sel.set <- c("APERSAUT", "AMOTSCO", "ALEVEN", "AAANHANG", "APLEZIER") 
+select(caravan_df, sel.set) -> sel1.caravan_df
+# Standardize the  data data
+sel1.caravan_df[,] <- as.matrix(scale(sel1.caravan_df[,]))
+str(sel1.caravan_df)
+
+# COMMAND ----------
+
+#Looking for the best method and number of clusters
+sel1.caravan_df %>%
+  clValid(nClust=2:4, clMethods=c('kmeans','pam', 'hierarchical'),validation='internal', maxitems = 9900)  -> clValid_results
+summary(clValid_results)
+
+# COMMAND ----------
+
+# MAGIC %md This code returns the unexplainable error even when we have tried it locally and with different other set of variables. We didn't find the way to check this subset for the best number of clusters and the best method. Instead, we conducted a few separated tests for different methods and cluster numbers. Below we put our best results.
+
+# COMMAND ----------
+
+# MAGIC %md **THREE k-means** clusters is about the best
+
+# COMMAND ----------
+
+# MAGIC %md Building **3** k-means clusters. (3 clusters have the biggest avg width)
+
+# COMMAND ----------
+
+sel1.caravan_df %>%
+  kmeans(centers=3) %>%
+  {.} -> kmeans.out
+clusplot(sel1.caravan_df, kmeans.out$cluster, color=TRUE, shade=TRUE, labels=2, lines=0, plotchar=FALSE)
+
+# COMMAND ----------
+
+# MAGIC %md **Some result descriptions**
+
+# COMMAND ----------
+
+# MAGIC %md Plotting Silhouette plot
+
+# COMMAND ----------
+
+dist.mat <- daisy(sel1.caravan_df) 
+#dist.mat2<- dist.mat^2 # Should we square for k-mean?
+   silhouette(kmeans.out$cluster, dist.mat) -> sel.caravan.sil
+plot(sel.caravan.sil)
+
+# COMMAND ----------
+
+# MAGIC %md ** Result description**
+
+# COMMAND ----------
+
+summary(sel.caravan.sil)
+
+# COMMAND ----------
+
+# MAGIC %md We've got three clusters with an average width of about 0.74, which indicates that a strong structure was found. Even though the size of two out of three clusters is small(353 and 206 vs 9263) , the division is still interesting to investigate deeper.
+
+# COMMAND ----------
+
+# MAGIC %md Calculating Dunn index to evaluate the level of clusters compactness. The bigger, the better.
+
+# COMMAND ----------
+
+dunn(dist=dist(sel1.caravan_df), clusters=kmeans.out$cluster)
+
+# COMMAND ----------
+
+# MAGIC %md The value of DUNN index is rather small, which indicates that our cluster groups are not particularly good. 
+
+# COMMAND ----------
+
+# MAGIC %md Building set to describe our findings.
+
+# COMMAND ----------
+
+sel.set <- c("APERSAUT", "AMOTSCO", "ALEVEN", "AAANHANG", "APLEZIER", "CARAVAN") 
+select(caravan_df, sel.set) -> desc.caravan_df
+# adding clustering results to the dataset
+desc.caravan_df$k3.cluster <- factor(kmeans.out$cluster) # from previous cells
+str(desc.caravan_df)
+
+# COMMAND ----------
+
+# MAGIC %md Looking for the pattern how CARAVAN is distributed across our three clusters.
+
+# COMMAND ----------
+
+
+desc.caravan_df %>%
+group_by(k3.cluster, CARAVAN) %>%
+  summarise (., n = n()) %>%
+    mutate(freq = n / sum(n)) %>%
+      {.} -> CARAVAN.fr
+CARAVAN.fr<-arrange(CARAVAN.fr, k3.cluster, desc(freq))
+CARAVAN.fr
+
+# COMMAND ----------
+
+# MAGIC %md The big revelation: 3       1   563 0.05955151 
+# MAGIC 
+# MAGIC **The cluster number 3 has magority of CARAVAN insurance policies.**
+# MAGIC 
+# MAGIC 563 out of 586.
+# MAGIC And cluster 2 has zero.
+
+# COMMAND ----------
+
+# MAGIC %md Let's try to plot our clusters for AMOTSCO: Number of motorcycle/scooter policies and ALEVEN: Number of life insurances
+
+# COMMAND ----------
+
+qplot(data=desc.caravan_df,
+      x=AMOTSCO, #Avg age
+      y=ALEVEN, #Customer main type
+      color = k3.cluster,
+      position ="dodge", size = as.factor(CARAVAN)) +geom_point()# +scale_size_area(max = 6)
+
+# COMMAND ----------
+
+# MAGIC %md Remembering that our variables in the dataset are categorical ordinal, lets build frequency distributions.
+
+# COMMAND ----------
+
+# MAGIC %md APERSAUT:Number of car policies
+
+# COMMAND ----------
+
+labels_Num <- c("0: 0", "1: 1 - 49", "2: 50 - 99", "3: 100 - 199", "4: 200 - 499", "5: 500 - 999", "6: 1000 - 4999", "7: 5000 - 9999", "8: 10,000 - 19,999", "9: >= 20,000")
+desc.caravan_df %>%
+group_by(k3.cluster, APERSAUT) %>%
+  summarise (., n = n()) %>%
+    mutate(freq = n / sum(n)) %>%
+      {.} -> APERSAUT.fr
+APERSAUT.fr$APERSAUT <- labels_Num[APERSAUT.fr$APERSAUT+1]
+APERSAUT.fr<-arrange(APERSAUT.fr, k3.cluster, desc(freq))
+APERSAUT.fr
+
+# COMMAND ----------
+
+# MAGIC %md First cluster: The biggest group 1-49 (57.5%). The secod zero policies (32.86%). First two together comprise about 90% of the cluster.
+# MAGIC 
+# MAGIC Second cluster: The bioggest group again 1-49 (62.62%). The scond zero (29.6%).
+# MAGIC 
+# MAGIC Third cluster: The same two groups with 96% cumulative percentage.
+# MAGIC All three goups looks similar.
+
+# COMMAND ----------
+
+# MAGIC %md Let's plot a bar chart to compare
+
+# COMMAND ----------
+
+APERSAUT.fr %>%
+  ggplot  (aes(x= APERSAUT, y= freq)) +
+  geom_bar(stat = "identity") +   
+  scale_fill_manual(values=cbPalette) +
+facet_grid(factor(k3.cluster) ~ .)+
+xlab("Number of car policies.")
+
+# COMMAND ----------
+
+# MAGIC %md We can see again that the differences are very subtle. Cluster 3 does not appear to show anything telling.
+
+# COMMAND ----------
+
+# MAGIC %md AMOTSCO: Number of motorcycle/scooter policies
+
+# COMMAND ----------
+
+labels_Num <- c("0: 0", "1: 1 - 49", "2: 50 - 99", "3: 100 - 199", "4: 200 - 499", "5: 500 - 999", "6: 1000 - 4999", "7: 5000 - 9999", "8: 10,000 - 19,999", "9: >= 20,000")
+desc.caravan_df %>%
+group_by(k3.cluster, AMOTSCO) %>%
+  summarise (., n = n()) %>%
+    mutate(freq = n / sum(n)) %>%
+      {.} -> AMOTSCO.fr
+AMOTSCO.fr$AMOTSCO <- labels_Num[AMOTSCO.fr$AMOTSCO+1]
+AMOTSCO.fr<-arrange(AMOTSCO.fr, k3.cluster, desc(freq))
+AMOTSCO.fr
+
+# COMMAND ----------
+
+# MAGIC %md Here we have much more intersting picture.
+# MAGIC The second and the third clusters very similar, whereas the first one includes mostly zipcodes with 1-49 policies (about 93%)
+
+# COMMAND ----------
+
+# MAGIC %md Let's use a bar chart to illustrate.
+
+# COMMAND ----------
+
+AMOTSCO.fr %>%
+  ggplot  (aes(x= AMOTSCO, y= freq)) +
+  geom_bar(stat = "identity") +   
+  scale_fill_manual(values=cbPalette) +
+facet_grid(factor(k3.cluster) ~ .)+
+xlab("Number of motorcycle/scooter policies.")
+
+# COMMAND ----------
+
+# MAGIC %md One thing we can take away from this analysis is that since th third cluster (our cluster of interest) only has 0 listed for number of motorcycle/scooter policies, this indicates that the group that appears to be responsive with CARAVAN also has no motorcycle/scooter policies. This can be helpful in making predictions or segmentation
+
+# COMMAND ----------
+
+# MAGIC %md ALEVEN: Number of life insurances
+
+# COMMAND ----------
+
+labels_Num <- c("0: 0", "1: 1 - 49", "2: 50 - 99", "3: 100 - 199", "4: 200 - 499", "5: 500 - 999", "6: 1000 - 4999", "7: 5000 - 9999", "8: 10,000 - 19,999", "9: >= 20,000")
+desc.caravan_df %>%
+group_by(k3.cluster, ALEVEN) %>%
+  summarise (., n = n()) %>%
+    mutate(freq = n / sum(n)) %>%
+      {.} -> ALEVEN.fr
+ALEVEN.fr$ALEVEN <- labels_Num[ALEVEN.fr$ALEVEN+1]
+ALEVEN.fr<-arrange(ALEVEN.fr, k3.cluster, desc(freq))
+ALEVEN.fr
+
+# COMMAND ----------
+
+# MAGIC %md The first and the second clusters look similar from this variable point of view, but the third one has a completely different structure:
+# MAGIC - 81.6% 50-99 policies per zip code
+# MAGIC - 11.12% 100-199 policies
+# MAGIC The other two clusters consist of zero and 1-49 policies.
+# MAGIC We may conclude the main factor here is whether the number of life insurance policies bigger than 50 or lower.
+
+# COMMAND ----------
+
+# MAGIC %md Let's illustrate this with a nice bar chart
+
+# COMMAND ----------
+
+ALEVEN.fr %>%
+  ggplot  (aes(x= ALEVEN, y= freq)) +
+  geom_bar(stat = "identity") +   
+  scale_fill_manual(values=cbPalette) +
+facet_grid(factor(k3.cluster) ~ .)+
+xlab("Number of life insurances.")
+
+# COMMAND ----------
+
+# MAGIC %md Description
+
+# COMMAND ----------
+
+# MAGIC %md AAANHANG: Number of trailer policies 
+
+# COMMAND ----------
+
+labels_Num <- c("0: 0", "1: 1 - 49", "2: 50 - 99", "3: 100 - 199", "4: 200 - 499", "5: 500 - 999", "6: 1000 - 4999", "7: 5000 - 9999", "8: 10,000 - 19,999", "9: >= 20,000")
+desc.caravan_df %>%
+group_by(k3.cluster, AAANHANG) %>%
+  summarise (., n = n()) %>%
+    mutate(freq = n / sum(n)) %>%
+      {.} -> AAANHANG.fr
+AAANHANG.fr$AAANHANG <- labels_Num[AAANHANG.fr$AAANHANG+1]
+AAANHANG.fr<-arrange(AAANHANG.fr, k3.cluster, desc(freq))
+AAANHANG.fr
+
+# COMMAND ----------
+
+# MAGIC %md There is nothing remarkable, we might have deleted this variable from clustering with the same result!
+
+# COMMAND ----------
+
+# MAGIC %md APLEZIER : Number of boat policies
+
+# COMMAND ----------
+
+labels_Num <- c("0: 0", "1: 1 - 49", "2: 50 - 99", "3: 100 - 199", "4: 200 - 499", "5: 500 - 999", "6: 1000 - 4999", "7: 5000 - 9999", "8: 10,000 - 19,999", "9: >= 20,000")
+desc.caravan_df %>%
+group_by(k3.cluster, APLEZIER) %>%
+  summarise (., n = n()) %>%
+    mutate(freq = n / sum(n)) %>%
+      {.} -> APLEZIER.fr
+APLEZIER.fr$APLEZIER <- labels_Num[APLEZIER.fr$APLEZIER+1]
+APLEZIER.fr<-arrange(APLEZIER.fr, k3.cluster, desc(freq))
+APLEZIER.fr
+
+# COMMAND ----------
+
+# MAGIC %md Similarly to the motocycle/scooter policies, this output indicates that those who have mobile home insurance (CARAVAN) most likely do not have boat insurance. This makes intuitive sense as those concerned about their mobile homes most likely do not have a boat to be concerned with as well. This relationship can be determined by observing that Cluster 3 is made up almost entirely of responses of 0 for APLEZIER, indicating that the cluster with a large number of mobile home insurance policies also lack boat policies. This can also be used for both prediction and segmentation purposes in the future. 
+
+# COMMAND ----------
+
+# MAGIC %md ##Use associaton rules produced by the arules package to characterize the clusters
+
+# COMMAND ----------
+
+desc.caravan_df %>%
+  mutate_all(as.factor) %>%
+  {.} -> factor.caravan_df
+
+apriori.appearance = list(rhs=c('CARAVAN=1','CARAVAN=0'), lhs=c('k3.cluster=1','k3.cluster=2', 'k3.cluster=3'))
+apriori.parameter = list(support=0.001,
+                         confidence=0.01,
+                         minlen=1,
+                         maxlen=7)
+apriori.control = list(verbose=FALSE)
+rules = apriori(factor.caravan_df,
+                parameter=apriori.parameter,
+                appearance=apriori.appearance,
+                control=apriori.control)
+#plot(subset(rules, subset = lift >1), method = NULL, measure = "support", shading = "lift", interactive = FALSE, data = NULL, control = NULL, engine = "default")
+inspect(rules)
+
+# COMMAND ----------
+
+# MAGIC %md The first two rules are useless for our purpose. The 5th rule is the most interesting one. The procedure revealed that there's an association between the cluster #3 and the CARAVAN variables. From the printout we see that **563 out of 586 the policy owners belong to the cluster number three.** Unfortunately, the lift is below 1, and it means that the correlation is not reliable. However, the result is still useful for our purposes.
+# MAGIC 
+# MAGIC **{k3.cluster=3} => {CARAVAN=1} 0.057320301 0.05955151 0.9981484  563 **
+
+# COMMAND ----------
+
+# MAGIC %md __Cluster Group__: [name]
+# MAGIC - Technique: k-means
+# MAGIC Parameters:
+# MAGIC - Number of clusters: 3
+# MAGIC - Connectivity: 
+# MAGIC - Silhouette width: 0.74
+# MAGIC - Dunn index: **0.03730601**
+# MAGIC - Characterization: 
+# MAGIC - Evaluation: **563 out of 586 the policy owners belong to the cluster number three.**
+
+# COMMAND ----------
+
+# MAGIC %md ###Using "hclust" to build dendrogram
+
+# COMMAND ----------
+
+# MAGIC %md Rebuilding a subset.
+
+# COMMAND ----------
+
+#Create subset
+sel.set <- c("APERSAUT", "AMOTSCO", "ALEVEN", "AAANHANG", "APLEZIER") 
+select(caravan_df, sel.set) -> sel1.caravan_df
+# Standardize the  data data
+sel1.caravan_df[,] <- as.matrix(scale(sel1.caravan_df[,]))
+str(sel1.caravan_df)
+
+# COMMAND ----------
+
+# MAGIC %md Using hclust to buils a denderogram
+
+# COMMAND ----------
+
+# Using Hclust method
+dist.mat <- dist(sel1.caravan_df)  
+sel1.caravan_df.hc <- hclust(dist.mat, method = "ward.D")
+plot(sel1.caravan_df.hc)
+
+# COMMAND ----------
+
+# MAGIC %md This dendogram is obviously difficult to interpret due to the amount of variables we have. To start analyzing in a way that yileds easy to observe results, we use the cutree function below to create 5 clusters
+
+# COMMAND ----------
+
+# MAGIC %md Plotting Silhoutte plot for **"hclust"** cutted to **5 clusters**
+
+# COMMAND ----------
+
+# Cluster - factor(cutree(sel1.caravan_df.hc,k=5))
+silhouette(as.numeric(factor(cutree(sel1.caravan_df.hc,k=5))), dist.mat) -> sel.caravan.sil
+plot(sel.caravan.sil)
+
+# COMMAND ----------
+
+summary(sel.caravan.sil)
+
+# COMMAND ----------
+
+# MAGIC %md Here, our silhouette width is strong with an average width of 0.89, suggesting we have well-clustered data points. Most of this is due to the first two clusters, which make up a majority of the dataset.
+
+# COMMAND ----------
+
+# MAGIC %md Calculating DUNN index
+
+# COMMAND ----------
+
+dunn(dist=dist(sel1.caravan_df), cutree(sel1.caravan_df.hc,k=5))
+
+# COMMAND ----------
+
+# MAGIC %md The Dunn index for "hclust"  method is bigger, which indicates that 5 clusters are more compact than 3 "k-means" clusters from the previous stage.
+
+# COMMAND ----------
+
+# MAGIC %md Creating the dataset for describing clusters
+
+# COMMAND ----------
+
+factor(cutree(sel1.caravan_df.hc,k=5))
+sel.set <- c("APERSAUT", "AMOTSCO", "ALEVEN", "AAANHANG", "APLEZIER", "CARAVAN") 
+select(caravan_df, sel.set) -> desc.caravan_df
+# adding clustering results to the dataset
+desc.caravan_df$h5.cluster <- factor(cutree(sel1.caravan_df.hc,k=5)) 
+str(desc.caravan_df)
+
+# COMMAND ----------
+
+# MAGIC %md How is CARAVAN distributed across clusters?
+
+# COMMAND ----------
+
+desc.caravan_df %>%
+group_by(h5.cluster, CARAVAN) %>%
+  summarise (., n = n()) %>%
+    mutate(freq = n / sum(n)) %>%
+      {.} -> CARAVAN.fr
+CARAVAN.fr<-arrange(CARAVAN.fr, h5.cluster, desc(freq))
+CARAVAN.fr
+
+# COMMAND ----------
+
+# MAGIC %md The first and the second clusters accommodate majority of CARAVAN policy owners, 366 and 127 respectively.
+
+# COMMAND ----------
+
+# MAGIC %md Let's try to plot our clusters for AMOTSCO: Number of motorcycle/scooter policies and ALEVEN: Number of life insurances
+
+# COMMAND ----------
+
+qplot(data=desc.caravan_df,
+      x=AMOTSCO, #Avg age
+      y=ALEVEN, #Customer main type
+      color = h5.cluster,
+      position ="dodge", size = as.factor(CARAVAN)) +geom_point()# +scale_size_area(max = 6)
+
+# COMMAND ----------
+
+# MAGIC %md Remembering that our variables in the dataset are categorical ordinal, lets build frequency distributions.
+
+# COMMAND ----------
+
+# MAGIC %md APERSAUT:Number of car policies
+
+# COMMAND ----------
+
+labels_Num <- c("0: 0", "1: 1 - 49", "2: 50 - 99", "3: 100 - 199", "4: 200 - 499", "5: 500 - 999", "6: 1000 - 4999", "7: 5000 - 9999", "8: 10,000 - 19,999", "9: >= 20,000")
+desc.caravan_df %>%
+group_by(h5.cluster, APERSAUT) %>%
+  summarise (., n = n()) %>%
+    mutate(freq = n / sum(n)) %>%
+      {.} -> APERSAUT.fr
+APERSAUT.fr$APERSAUT <- labels_Num[APERSAUT.fr$APERSAUT+1]
+APERSAUT.fr<-arrange(APERSAUT.fr, h5.cluster, desc(freq))
+head(APERSAUT.fr, n=20)
+
+# COMMAND ----------
+
+# MAGIC %md 92% of customers, who belongs to this cluster live in zip codes with 1-49 Number of delivery van policies and Non of the cluster members live in zip codes with zero Number of delivery van policies
+
+# COMMAND ----------
+
+# MAGIC %md Let's plot a bar chart to illustrate
+
+# COMMAND ----------
+
+APERSAUT.fr %>%
+  ggplot  (aes(x= APERSAUT, y= freq)) +
+  geom_bar(stat = "identity") +   
+  scale_fill_manual(values=cbPalette) +
+facet_grid(factor(h5.cluster) ~ .)+
+xlab("Number of car policies.")
+
+# COMMAND ----------
+
+# MAGIC %md Interesting results here indicate that low number of car policies seem associated with mobile home insurance (CARAVAN). Since clusters 1 and 2 saw the highest amount of responses for CARAVAN and cluster 1 has a large volume of 1-49 while cluster 2 is only comprised of 0, we can speculate that part of why these clusters are separated is each clusters respective level of car policies. Cluster 1 is made up of those areas with mobile home policies but a small amount of car policies, while cluster 2 is made up of those areas with mobile home policies but no car policies.
+
+# COMMAND ----------
+
+# MAGIC %md AMOTSCO: Number of motorcycle/scooter policies
+
+# COMMAND ----------
+
+labels_Num <- c("0: 0", "1: 1 - 49", "2: 50 - 99", "3: 100 - 199", "4: 200 - 499", "5: 500 - 999", "6: 1000 - 4999", "7: 5000 - 9999", "8: 10,000 - 19,999", "9: >= 20,000")
+desc.caravan_df %>%
+group_by(h5.cluster, AMOTSCO) %>%
+  summarise (., n = n()) %>%
+    mutate(freq = n / sum(n)) %>%
+      {.} -> AMOTSCO.fr
+AMOTSCO.fr$AMOTSCO <- labels_Num[AMOTSCO.fr$AMOTSCO+1]
+AMOTSCO.fr<-arrange(AMOTSCO.fr, h5.cluster, desc(freq))
+head(AMOTSCO.fr, n=20)
+
+# COMMAND ----------
+
+# MAGIC %md All #1 cluster members leave only in zipcodes with zero Number of motorcycle/scooter policies
+
+# COMMAND ----------
+
+# MAGIC %md Let's use a bar chart to illustrate.
+
+# COMMAND ----------
+
+AMOTSCO.fr %>%
+  ggplot  (aes(x= AMOTSCO, y= freq)) +
+  geom_bar(stat = "identity") +   
+  scale_fill_manual(values=cbPalette) +
+facet_grid(factor(h5.cluster) ~ .)+
+xlab("Number of motorcycle/scooter policies.")
+
+# COMMAND ----------
+
+# MAGIC %md This result is very interesting. Similar to interpretations we were able to make in the different clustering methods above, this indicates that there is an association between CARAVAN response and motorcycle/scooter policies. Again, we see that when clusters that have a large amount of the CARAVAN response, they also have no motorcycle/scooter policies. This command is very similar to command 84 and can also be used for prediction and segmentation.
+
+# COMMAND ----------
+
+# MAGIC %md ALEVEN: Number of life insurances
+
+# COMMAND ----------
+
+labels_Num <- c("0: 0", "1: 1 - 49", "2: 50 - 99", "3: 100 - 199", "4: 200 - 499", "5: 500 - 999", "6: 1000 - 4999", "7: 5000 - 9999", "8: 10,000 - 19,999", "9: >= 20,000")
+desc.caravan_df %>%
+group_by(h5.cluster, ALEVEN) %>%
+  summarise (., n = n()) %>%
+    mutate(freq = n / sum(n)) %>%
+      {.} -> ALEVEN.fr
+ALEVEN.fr$ALEVEN <- labels_Num[ALEVEN.fr$ALEVEN+1]
+ALEVEN.fr<-arrange(ALEVEN.fr, h5.cluster, desc(freq))
+ALEVEN.fr
+
+# COMMAND ----------
+
+# MAGIC %md All #1 cluster members leave only in zipcodes with zero Number of life insurances
+
+# COMMAND ----------
+
+# MAGIC %md Bar Chart 
+
+# COMMAND ----------
+
+ALEVEN.fr %>%
+  ggplot  (aes(x= ALEVEN, y= freq)) +
+  geom_bar(stat = "identity") +   
+  scale_fill_manual(values=cbPalette) +
+facet_grid(factor(h5.cluster) ~ .)+
+xlab("Number of life insurances.")
+
+# COMMAND ----------
+
+# MAGIC %md Similar to the motorcycle/scooter policies interpretation, we can see that clusters 1 and 2 both have no life insurances within their clusters. This makes intuitive sense as it can be assumed that zipcodes with a large amount of mobile home policies may not have the means to set up life insurances. This too can be used for prediction in terms of identifying zipcodes that are likely to set up mobile home policies.
+
+# COMMAND ----------
+
+# MAGIC %md AAANHANG: Number of trailer policies 
+
+# COMMAND ----------
+
+labels_Num <- c("0: 0", "1: 1 - 49", "2: 50 - 99", "3: 100 - 199", "4: 200 - 499", "5: 500 - 999", "6: 1000 - 4999", "7: 5000 - 9999", "8: 10,000 - 19,999", "9: >= 20,000")
+desc.caravan_df %>%
+group_by(h5.cluster, AAANHANG) %>%
+  summarise (., n = n()) %>%
+    mutate(freq = n / sum(n)) %>%
+      {.} -> AAANHANG.fr
+AAANHANG.fr$AAANHANG <- labels_Num[AAANHANG.fr$AAANHANG+1]
+AAANHANG.fr<-arrange(AAANHANG.fr, h5.cluster, desc(freq))
+AAANHANG.fr
+
+# COMMAND ----------
+
+# MAGIC %md Again, Clusters 1 and 2 show that they have no trailer policies. However, Clusters 3 and 4 do as well. This is more indicative of there not being a lot of trailer policies in the data set than anything else and is not as useful as other variables in terms of intrepreting our clusters of interest.
+
+# COMMAND ----------
+
+# MAGIC %md APLEZIER : Number of boat policies
+
+# COMMAND ----------
+
+labels_Num <- c("0: 0", "1: 1 - 49", "2: 50 - 99", "3: 100 - 199", "4: 200 - 499", "5: 500 - 999", "6: 1000 - 4999", "7: 5000 - 9999", "8: 10,000 - 19,999", "9: >= 20,000")
+desc.caravan_df %>%
+group_by(h5.cluster, APLEZIER) %>%
+  summarise (., n = n()) %>%
+    mutate(freq = n / sum(n)) %>%
+      {.} -> APLEZIER.fr
+APLEZIER.fr$APLEZIER <- labels_Num[APLEZIER.fr$APLEZIER+1]
+APLEZIER.fr<-arrange(APLEZIER.fr, h5.cluster, desc(freq))
+APLEZIER.fr
+
+# COMMAND ----------
+
+# MAGIC %md Similar to the trailer policies above, while Clusters 1 and 2 have no boat policies, Clusters 3 and 4 do not as well. Clusters 3 and 4 do have some CARAVAN responses, but this frequency distribution does not give us enough information to utilize this variable as much as we would the others. When the contrast between Clusters 1 and 2 is more stark compared to the rest, then we can make more confident interpretations. 
+
+# COMMAND ----------
+
+# MAGIC %md ##Use associaton rules produced by the arules package to characterize the clusters
+
+# COMMAND ----------
+
+desc.caravan_df %>%
+  mutate_all(as.factor) %>%
+  {.} -> factor.caravan_df
+
+apriori.appearance = list(rhs=c('CARAVAN=1','CARAVAN=0'), lhs=c('h5.cluster=1','h5.cluster=2', 'h5.cluster=3', 'h5.cluster=4', 'h5.cluster=5'))
+apriori.parameter = list(support=0.001,
+                         confidence=0.01,
+                         minlen=1,
+                         maxlen=7)
+apriori.control = list(verbose=FALSE)
+rules = apriori(factor.caravan_df,
+                parameter=apriori.parameter,
+                appearance=apriori.appearance,
+                control=apriori.control)
+#plot(subset(rules, subset = lift >1), method = NULL, measure = "support", shading = "lift", interactive = FALSE, data = NULL, control = NULL, engine = "default")
+inspect(rules)
+
+# COMMAND ----------
+
+# MAGIC %md The first two rules are useless for our purpose. The 9th rule is the most interesting one. The procedure revealed that there's a positive association between the cluster #1 and the CARAVAN variables. From the printout we see that **366 out of 586 the policy owners belong to the cluster number one.** The most notable, the lift is above 1, and it means that there's a positive correlation. 
+# MAGIC 
+# MAGIC **{h5.cluster=1} => {CARAVAN=1} 0.037263286 0.08392571 1.4066865  366**
+# MAGIC 
+# MAGIC In the second case (the rule #10) we have a negative correlation (the lift is below 1) between the cluster #2 and CARAVAN=1 (the policy owning). 
+# MAGIC 
+# MAGIC **{h5.cluster=2} => {CARAVAN=1} 0.012930157 0.02825362 0.4735614  127 **
+# MAGIC 
+# MAGIC The **cluster #1** looks **the most important** for our classification purposes.
+
+# COMMAND ----------
+
+# MAGIC %md __Cluster Group__: [name]
+# MAGIC - Technique: hclust
+# MAGIC Parameters:
+# MAGIC - Number of clusters: **5**
+# MAGIC - Connectivity: 
+# MAGIC - Silhouette width: **0.9**
+# MAGIC - Dunn index: **0.05229525**
+# MAGIC - Characterization: 
+# MAGIC - Evaluation: Useful. 
+
+# COMMAND ----------
+
+# MAGIC %md ## Conclusion
+# MAGIC 
+# MAGIC We found that the hclust method has returned better results in both cases and that it's, unlike k-means method, yields consistent results. Therefore we mostly focused our description efforts over there.
+# MAGIC For instance, we found that #1 cluster, received from 5 clusters cut of the dendrogramm for "APERSAUT", "AMOTSCO", "ALEVEN", "AAANHANG", "APLEZIER", "CARAVAN" variables set, and the CARAVAN variables are positively correlated and this association emerges 40% more often when it would be without the relationship. 
+# MAGIC 
+# MAGIC We found that 366 out of 586 the policy owners belong to the cluster number one. The #1 cluster may be described as following:
+# MAGIC - 92% of customers, who belongs to this cluster live in zip codes with 1-49 Number of delivery van policies and Non of the cluster members live in zip codes with zero Number of delivery van policies
+# MAGIC - All #1 cluster members leave only in zipcodes with zero Number of motorcycle/scooter policies
+# MAGIC - All #1 cluster members leave only in zipcodes with zero Number of life insurances 
+# MAGIC - All #1 cluster members leave only in zip codes with zero Number of trailer policies
+# MAGIC - All #1 cluster members leave only in zip codes with zero Number of boat policies
+# MAGIC 
+# MAGIC Therefore, next time we may conclude that when customers live in a zip code with 1-49 Number of delivery van policies and zero following policies: Number of motorcycle/scooter policies, Number of life insurances, Number of trailer policies, Number of boat policies; they are more likely to buy the CARAVAN insurance policy than if they live in any other zip codes.
