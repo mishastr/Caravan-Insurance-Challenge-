@@ -1,0 +1,501 @@
+# Databricks notebook source
+# MAGIC %md
+# MAGIC - Mikhail Stroev (stroev_mik@benley.edu)
+# MAGIC - Logan Turnbul (turnbul_loga@bentley.edu)
+# MAGIC - Thomas Smith (smith_thom@bentley.edu)
+
+# COMMAND ----------
+
+# MAGIC %md # Caravan Association Rules - MA710
+
+# COMMAND ----------
+
+# MAGIC %md ## Introduction
+# MAGIC In order to gain a better understanding of the Caravan data set, we used Association rules to compare the 86 variables. 
+# MAGIC 
+# MAGIC The idea was to find out if once certain circumstances had occured, if we could make inferances based on confidence, support, and lift to find out if patterns or insights emerge. This would allow us to gain a stronger understanding of how variables may be related and how some patterns suggest different conclusions within any target variables. For this dataset, we're curious about the CARAVAN variable, which represents the number of mobile home policies with respect to insurance. We took a look at what variables had strong associations with Caravan, but had to utilize a few different code blocks in order to get a holistic picture of the variable. Most incidents in this dataset result in CARAVAN being set to 0 where about only 5% result in 1 (it's a binary variable). We looked at what other variables in different combinations had a strong relationship for when Caravan was both set to 0 and 1.
+# MAGIC 
+# MAGIC We also found it important to look at associations between all variables, not just how they related to Caravan. This was done in order to understand other relationships since we had so many variables to deal with. From this, we can refine the dataset to take care of redundencies ot ignore variables that don't add any substantial predicting power in later analysis. Throughout the analysis, we provide several graphs to visual represent how we identified important associations as well as provide our coding behind creating these associations and graphs. 
+# MAGIC 
+# MAGIC We started with Caravan-specific association rules, then refine our analysis to look at when Caravan is set to 1; lastly we look at other association rules for non-caravan variables. 
+
+# COMMAND ----------
+
+# MAGIC %md ## Dataset Description
+
+# COMMAND ----------
+
+# MAGIC %md 
+# MAGIC The dataset describes customers of an insurance company. Each record describes a unique customer. As an individual customer, the company considers a household or a small group of people, which were aggregated by unknown characteristics. The dataset has three primary layers each of which consists of different type of variables and describes each customer from different angles. The first layer is the individual layer, which provides the description of a single customer:
+# MAGIC 
+# MAGIC - ORIGIN: train or test, as described above (Which is out of our interests)
+# MAGIC - MOSTYPE: Customer Subtype; see L0 (Categorical Nominal)
+# MAGIC - MAANTHUI: Number of houses 1 - 10 (numerical)
+# MAGIC - MGEMOMV: Avg size household 1 - 6 (numerical)
+# MAGIC - MGEMLEEF: Avg age; see L1 (Categorical Ordinal )
+# MAGIC - MOSHOOFD: Customer main type; see L2 (Categorical nominal)
+# MAGIC The second and the third layers give based on zip codes customer descriptions:
+# MAGIC 
+# MAGIC - (1) Demographical "M" variables are the ordinal categorical variables, describing a demographical structure of each zip code where a customer resides. All of them were converted from continuous numerical variables into ordinal categorical ( later we are going to treat them as interval variables for clustering purposes), using the L3: 10-steps scale with not even intervals. This coding diminishes their value as interval variables.
+# MAGIC - (2)"Product P & A" variables are are the ordinal categorical variables, describing a "behavioral product" structure of each zip code where a customer resides. All of them were converted from continuous numerical variables into ordinal categorical ( later we are going to treat them as interval variables for clustering purposes), using the L4: 10-steps scale with not even, almost logarithmical like, intervals. This coding diminishes their value as interval variables. The difference between "P" and "A" variables ("Contribution" and "Number") is still unclear due to the absence of a proper dataset description.
+# MAGIC The dataset includes one "response" variable "CARAVAN," which is a binary, by its nature, variable and three groups of variables.
+# MAGIC 
+# MAGIC The "response" variable "CARAVAN," probably, is associated with the notion of level of interest toward a potential of buying a specific insurance policy.
+# MAGIC  
+# MAGIC  ** TOTAL = 9822 observations**.
+
+# COMMAND ----------
+
+# MAGIC %md ## Load Libraries
+
+# COMMAND ----------
+
+# MAGIC %md Load the required libraries:
+# MAGIC - `readr`: supplies the `read_csv` function
+# MAGIC - `dplyr`: supplies the dataframe functions
+# MAGIC - `ggplot2`: supplies the graphics functions
+# MAGIC - `arules`: supplies the `apriori` function for assocation rules
+# MAGIC - `arulesViz`: to visualize results of the "apriory" function to make analysis easier
+
+# COMMAND ----------
+
+#Installing "arulesViz"
+library("devtools")
+install_github("mhahsler/arulesViz")
+install.packages('arulesViz')
+
+# COMMAND ----------
+
+#Loading necessary libraries
+library(dplyr)
+library(ggplot2)
+library(arules)
+library(arulesViz)
+
+# COMMAND ----------
+
+# MAGIC %md ## Read Dataset
+
+# COMMAND ----------
+
+# MAGIC %md Read the dataset from the CSV file into the dataframe `caravan_df`.
+# MAGIC 
+# MAGIC Read the CSV file, create a dataframe, remove the `ORIGIN` variable from that dataframe and store the resulting dataframe in `caravan_df`.
+
+# COMMAND ----------
+
+'/dbfs/mnt/group-ma710/data/caravan-insurance-challenge.csv' %>%
+  read.csv() %>%
+  select(-ORIGIN) %>%
+  tbl_df() %>% 
+  {.} -> caravan_df
+class(caravan_df)
+
+# COMMAND ----------
+
+# MAGIC %md Changing all variables in `caravan_df`into factor variables in order to perform statistical modeling over the data.
+
+# COMMAND ----------
+
+caravan_df %>%
+  mutate_all(as.factor) %>%
+  {.} -> caravan_df_factors
+str(caravan_df_factors) # Let's check the results
+
+# COMMAND ----------
+
+# MAGIC %md ## `CARAVAN` Association Rules 
+
+# COMMAND ----------
+
+# MAGIC %md Using 'apriory' function to create the matrix with assosiation rules
+# MAGIC with minimum 
+# MAGIC 
+# MAGIC **support = 0.1**, **minimum confidence = 0.1** and **maximum
+# MAGIC variables set = 7**
+# MAGIC 
+# MAGIC **RHS = 'CARAVAN=0','CARAVAN=1'**
+
+# COMMAND ----------
+
+apriori.appearance = list(rhs=c('CARAVAN=0','CARAVAN=1'),
+                          default='lhs')
+apriori.parameter = list(support=0.1,
+                         confidence=0.1,
+                         minlen=1,
+                         maxlen=7)
+apriori.control = list(verbose=FALSE)
+rules = apriori(caravan_df_factors,
+                parameter=apriori.parameter,
+                appearance=apriori.appearance,
+                control=apriori.control)
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC "A **lift value greater than 1** indicates that the rule LHS and the rule RJS appear more often together than expected, this means that **the occurrence of the rule body has a positive effect on the occurrence of the rule head.**"
+# MAGIC 
+# MAGIC From this perspective,  the most promising region to investigate is **the group from the upper left corner**, which looks to uniformly has lift higher than 1.
+# MAGIC Support bigger than 0.1 looks big enough to make this set interesting.
+
+# COMMAND ----------
+
+# MAGIC %md Plotting 'apriory" results for lift>1 to analyze better.
+
+# COMMAND ----------
+
+plot(subset(rules, subset = lift >1), method = NULL, measure = "support", shading = "lift", interactive = FALSE, data = NULL, control = NULL, engine = "default")
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC The region inside the rectangular area with support higher than 0.5 and confidence from 0.92 to 0.96 looks promising
+# MAGIC let's dig deeper.
+
+# COMMAND ----------
+
+# MAGIC %md 
+# MAGIC **minimum support = 0.4**, **minimum confidence = 0.965** and **maximum variables set = 7**
+
+# COMMAND ----------
+
+# MAGIC %md Plotting 'apriory" results for lift >1 & support >0.4 & confidence >0.965 to analyze better.
+
+# COMMAND ----------
+
+plot(subset(rules, subset = lift >1 & support >0.4 & confidence >0.965 ), method = NULL, measure = "support", shading = "lift", interactive = FALSE, data = NULL, control = NULL, engine = "default")
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC **minimum support = 0.52**, **minimum confidence = 0.957**, and **maximum variables set = 7**;  **RHS = 'CARAVAN=0','CARAVAN=1'**
+
+# COMMAND ----------
+
+# MAGIC %md Plotting 'apriory" results to analyze better.
+
+# COMMAND ----------
+
+plot(subset(rules, subset = lift >1 & support >0.44 & confidence >0.97 ), method = NULL, measure = "support", shading = "lift", interactive = FALSE, data = NULL, control = NULL, engine = "default")
+
+# COMMAND ----------
+
+# MAGIC %md The number is still massive - 1227 rules. 
+# MAGIC Let's sort them by support + confidence and consider **highest 50**
+
+# COMMAND ----------
+
+# Sorting + inspecting
+inspect(head(sort(subset(rules, subset = lift >1 & support >0.44 & confidence >0.97 ), by = c("support", "confidence"), decreasing = TRUE),50))
+
+# COMMAND ----------
+
+# MAGIC %md Among top 50 rules, there's no one longer than 3 LHS variables set.
+# MAGIC 
+# MAGIC Therefore, let's limit the length and rebuild the rules matrix.
+# MAGIC Using 'apriory' function to create the matrix with assosiation ruleswith a new region
+# MAGIC 
+# MAGIC **minimum support = 0.52**, **minimum confidence = 0.957**, and **maximum variables set = 3**;  **RHS = 'CARAVAN=0','CARAVAN=1'**
+
+# COMMAND ----------
+
+apriori.appearance = list(rhs=c('CARAVAN=0','CARAVAN=1'),
+                          default='lhs')
+apriori.parameter = list(support=0.44,
+                         confidence=0.97,
+                         minlen=1,
+                         maxlen=3)
+apriori.control = list(verbose=FALSE)
+rules = apriori(caravan_df_factors,
+                parameter=apriori.parameter,
+                appearance=apriori.appearance,
+                control=apriori.control)
+
+# COMMAND ----------
+
+# MAGIC %md Plotting 'apriory" results to analyze better.
+
+# COMMAND ----------
+
+plot(subset(rules, subset = lift >1 & support >0.44 & confidence >0.97 ), method = NULL, measure = "support", shading = "lift", interactive = FALSE, data = NULL, control = NULL, engine = "default")
+
+# COMMAND ----------
+
+# MAGIC %md 
+# MAGIC Now we've got a decent number -71.
+
+# COMMAND ----------
+
+# Sorting + inspecting
+inspect(head(sort(subset(rules, subset = lift >1 & support >0.44 & confidence >0.97 ), by = c("support", "confidence"), decreasing = TRUE),73))
+
+# COMMAND ----------
+
+# MAGIC %md #We got all the rules for "CARAVAN =0"#
+# MAGIC 
+# MAGIC We need to restart everything with looking mostly for rules leading to "CARAVAN=1"
+
+# COMMAND ----------
+
+# MAGIC %md Using 'apriory' function to create the matrix with assosiation rules
+# MAGIC with new region
+# MAGIC 
+# MAGIC **minimum support = 0.01**, **minimum confidence = 0.1** and **maximum LHS variables set = 7**
+# MAGIC 
+# MAGIC **RHS = 'CARAVAN=1'** 
+# MAGIC 
+# MAGIC _We have to use such small support only because of CARAVN = 1 just for less than 6% (**586**) of **9822** observations._
+
+# COMMAND ----------
+
+apriori.appearance = list(rhs=c('CARAVAN=1'), # I removed CARAVAN=0 !
+                          default='lhs')
+apriori.parameter = list(support=0.01,
+                         confidence=0.1,
+                         minlen=1,
+                         maxlen=7)
+apriori.control = list(verbose=FALSE)
+rules = apriori(caravan_df_factors,
+                parameter=apriori.parameter,
+                appearance=apriori.appearance,
+                control=apriori.control)
+
+# COMMAND ----------
+
+# MAGIC %md Plotting 'apriory" results with lift > 1 to analyze better.
+
+# COMMAND ----------
+
+plot(subset(rules, subset = lift >1 ), method = NULL, measure = "support", shading = "lift", interactive = FALSE, data = NULL, control = NULL, engine = "default")
+
+# COMMAND ----------
+
+# MAGIC %md Support is really low for all assosiation rules when we looking in subset where "CARAVAN=1". It's not bigger than 5%.
+# MAGIC 
+# MAGIC Let's dig deeper into the region where confidence >= 0.14 
+
+# COMMAND ----------
+
+# MAGIC %md 
+# MAGIC **minimum support = 0.02**, **minimum confidence = 0.145** and **maximum LHS variables set = 4**
+# MAGIC 
+# MAGIC **RHS = 'CARAVAN=1'** !!!!
+# MAGIC We have to use such small support only because of CARAVN = 1 just for less than 6% of the observations.
+
+# COMMAND ----------
+
+# MAGIC %md Plotting 'apriory" results _where subset = lift >1 & support>0.02 & confidence >0.145_ to analyze better.
+
+# COMMAND ----------
+
+plot(subset(rules, subset = lift >1 & support>0.02 & confidence > 0.145), method = NULL, measure = "support", shading = "lift", interactive = FALSE, data = NULL, control = NULL, engine = "default")
+
+# COMMAND ----------
+
+# MAGIC %md we've got 17 rules. Let's review them.
+
+# COMMAND ----------
+
+inspect(head(sort(subset(rules, subset = lift >1 & support>0.02 & confidence > 0.145), by = c("support", "confidence"), decreasing = TRUE),30))
+
+# COMMAND ----------
+
+# MAGIC %md First of all, as we expected it, the LHS part comprises of "product" variables. It's easy to understand that to find associations among interconnected products, like other insurance policies, is more probable than among a product and demographical variables. For instance the highest support and confidence has the following rule: in 15.25% instances a customer buys CARAVAN insurance policy when he lives in the zip code which does not have farmers, Contribution car policies for the zip code are in the 6: 1000 - 4999 range and the number of Number of fire policies is within the 1-49 range; and this happens 2.5 times more often than it would be when there was no association between them.
+# MAGIC The next example the rule number **five**:  in 17.45% of instances a customer buys the CARAVAN insurance policy when she lives in zip code where Contribution car policies for the zip code are in the 6: 1
+# MAGIC 000 - 4999 range and Contribution fire policies are in the 4: 200 - 499 range, and there's no Number of third party insurance (agriculture). Seemingly "agricultural" zip codes are not among those with CARAVN =1.
+
+# COMMAND ----------
+
+# MAGIC %md Depicting the matrix with rules we've found.
+
+# COMMAND ----------
+
+subrules <- head(sort(subset(rules, subset = lift >1 & support>0.02 & confidence > 0.145), by = c("support", "confidence"), decreasing = TRUE),17)
+plot(subrules, method="grouped matrix")
+
+
+# COMMAND ----------
+
+# MAGIC %md Among the most "influential" for associations variables, we may see: MBERBOER = (no farmers), ABRAND = 1 (Number of fire policies in the 1-49 range). They may serve as differentiators in case of classification model building.
+
+# COMMAND ----------
+
+# MAGIC %md Let's draw a nice hgraph for the first rule
+
+# COMMAND ----------
+
+plot(subrules[1:2], method="graph", control=list(type="itemsets"))
+
+# COMMAND ----------
+
+# MAGIC %md **{MBERBOER=0,PPERSAUT=6,ABRAND=1}  => {CARAVAN=1} support: 0.02514763 confidence:0.1525633 lift:2.557128 count:247**
+# MAGIC 
+# MAGIC This is the association rule with the highest support 2.51% in the whole data set and confidence 15.26%, which means that in 15.26% cases when percentage of farmers in a given zip code is zero, Contribution car policies were in 1000 - 4999 range, and Number of fire policies per zip code is in 1 - 49 range CARAVAN is equal 1 (meaning they have a mobile home policy). The lift is equal 2.557 that indicates a strong positive correlation -  we've observed the assosiation 2.5 times more than it's expected.
+
+# COMMAND ----------
+
+# MAGIC %md #Conlusions about "CARAVAN" association rules.
+
+# COMMAND ----------
+
+# MAGIC %md 
+# MAGIC Since there are not many instances where CARAVAN is set to one, any associations that pertain to having mobile home policies have a small amount of support within the large data set. From the associations we were able to pull, it would appear that the factors that most likely influence if mobile home policies are present are: farmers (if there are none), contribution to car policies (between $1,000 and $4,999), and the number of fire policies (between 1 and 49). In the combination of when there are no farmers in a zipcode, contribution to car policies is between $1,000 and $4,999, and the zipcode has between 1 and 49 fire policies, the likelihood of there being a mobile home policy (CARAVAN = 1) is 2.5 times higher than expected. 
+# MAGIC This tells us that mobile home policies are more likely in areas where there are no farmers and car insurance is widely used. This makes sense as farming areas typically see homes, not mobile homes, and any area where car insurance contributions are high would typically see more mobile homes where insurance for them would be beneficial.
+
+# COMMAND ----------
+
+# MAGIC %md ## Other Association Rules 
+
+# COMMAND ----------
+
+# MAGIC %md __[REMOVE FROM REPORT]__ Create association rules where the right hand side indicates variable-value pairs of your choice. You may leave them unspecified if you like. Go through the same processess as above: sort the rules and interpreted interesting rules from each list. 
+# MAGIC 
+# MAGIC You might also leave the right hand side open and intepret the rules that result. 
+
+# COMMAND ----------
+
+# MAGIC %md Looking for association rules for the whole data set.
+
+# COMMAND ----------
+
+apriori.appearance = list(default = 'both')
+apriori.parameter = list(target ='rules', 
+                         support=0.3,
+                         confidence=0.9,
+                         minlen=2,
+                         maxlen=4)
+apriori.control = list(verbose=FALSE)
+rules = apriori(caravan_df_factors,
+                parameter = apriori.parameter,
+               appearance = apriori.appearance,
+                control   = apriori.control)
+
+
+# COMMAND ----------
+
+# MAGIC %md Grouped matrix with all association rules in the data set.
+
+# COMMAND ----------
+
+plot(rules, method="grouped matrix")
+
+# COMMAND ----------
+
+# MAGIC %md Potentially interesting association rules might be the rules with biggest and reddest circles because they have the highest support and lift.
+
+# COMMAND ----------
+
+# MAGIC %md Let's plot all rules with lift >1 to find the most interesting "zones" to investigate further.
+
+# COMMAND ----------
+
+plot(subset(rules, subset = lift >1), method = NULL, measure = "support", shading = "lift", interactive = FALSE, data = NULL, control = NULL, engine = "default")
+
+# COMMAND ----------
+
+# MAGIC %md There are two interesting groups of rules to dig deeper:
+# MAGIC - Lower left corner 
+# MAGIC - Upper row from 30% to 60% support
+# MAGIC 
+# MAGIC Let's zoom upper lift corner and limit consider rules only with lift > 2.5 ( the more significant the lift, the stronger the association)
+
+# COMMAND ----------
+
+plot(subset(rules, subset = lift >2.5 & support> 0.35 & confidence > 0.9993), method = NULL, measure = "support", shading = "lift", interactive = FALSE, data = NULL, control = NULL, engine = "default")
+
+# COMMAND ----------
+
+# MAGIC %md In this interesting "region" we have only 47 rules. It's time to sort and to inspect what we've got.
+
+# COMMAND ----------
+
+subrules <- head(sort(subset(rules, subset = lift >2.5 & support> 0.35 & confidence > 0.9993), by = c("support", "confidence"), decreasing = TRUE),48)
+inspect(subrules)
+
+# COMMAND ----------
+
+# MAGIC %md Depicting the matrix with rules we've found.
+
+# COMMAND ----------
+
+plot(subrules, method="grouped matrix")
+
+# COMMAND ----------
+
+# MAGIC %md The most interesting rules are the three rules with highest support, confidence and lift. They are grouped into the group with the most prominent and reddish circle.
+# MAGIC From the grouped matrix it's clear that all our rules reflect association between the Number of private third party insurance 1 - 12 per zip code and other variables.
+# MAGIC 
+# MAGIC Let's draw a graph for the first three with highest support and lift
+
+# COMMAND ----------
+
+subrules <- sort(subrules, by = c("support", "lift"), decreasing = TRUE)
+plot(subrules[1:3], method="graph", control=list(type="itemsets"))
+
+# COMMAND ----------
+
+# MAGIC %md From the graph, we can see that zipcodes that have from 50 to 99 Contribution private third-party insurance per zip code and one (or both) of the following: zero of moped policies or zero of Contribution moped policies per zip code, also have Number of private third-party insurance 1 - 12 in the 1-49 range. We observe this association 2.5 times more often if they were unrelated.
+
+# COMMAND ----------
+
+# MAGIC %md We can also see from the confidence and support matrix that associations with the highest lifts tend to be those with low numbers of specialized policies. In our matrix, circumstances that were able to show a large lift in predicting a low number of third party insurance were all variables that had no specialty policies. The following policies helped predict a low number of third party insurances when they were set to 0: moped policies, lorry policies, surfboard policies, agriculture insurance, agriculture machine policies, trailer policies, and tractor policies. When any of these were set to 0 for a given zip code, there is a strong correlation between that and a low number of third party insurances. This makes intuitive sense as there wouldn't be a need for more third party insurances in areas where specialty insurance policies are very low. 
+# MAGIC Let's look at demographic information next:
+
+# COMMAND ----------
+
+apriori.appearance = list(rhs=c('MINK7512=4','MINK7512=5'),
+                          default='lhs')
+apriori.parameter = list(target ='rules', 
+                         support=0.01,
+                         confidence=0.01,
+                         minlen=3,
+                         maxlen=4)
+apriori.control = list(verbose=FALSE)
+rules = apriori(caravan_df_factors,
+                parameter = apriori.parameter,
+               appearance = apriori.appearance,
+                control   = apriori.control)
+inspect(rules[1:10])
+
+# COMMAND ----------
+
+# MAGIC %md Above, we identified the demographic variable MINK7512, which looks at the percetnage of people making between $75,000 and $120,000. In our conditions, we set the output to bring in associations for those with that variable set to 4 or 5, meaning 37% - 49% of the zipcode were in that bracket or 50%-62% of the zipcode were in that bracket, respectively. 
+# MAGIC Our findings show a couple interesting things. One was that when the zipcode has no entreprenuers as well as when 0% make an income of below $30,000, there is a 5x lift for MINK7512 occuring. It's not too surprising that when a below $30,000 income makes up no percent of a zip code that an income of $75K-$120K is more likely, but it's interesting that when that is coupled with no entreprenuers being in the zipcode that it becomes so much more likely than if the variables were independent. To note, these findings are low support and confidence due to the small amount of these instances in the dataset.
+# MAGIC Another interesting find is that when the number of tractor policies is 0 in a given zipcode and no one is making less than $30K, havng an income between $75K and $120K has a lift of 387%. This can begin to tell us that zipcodes with more Farmers can be expected to fall within a certain income range and this may have impact on predicting other variables as well.
+# MAGIC Next, in a similar fashion, we looked at a breakout where the associations matched with a higher income bracket - MINK123M, which is greater than $123,000
+
+# COMMAND ----------
+
+apriori.appearance = list(rhs=c('MINK123M=2','MINK123M=3'),
+                          default='lhs')
+apriori.parameter = list(target ='rules', 
+                         support=0.01,
+                         confidence=0.01,
+                         minlen=3,
+                         maxlen=4)
+apriori.control = list(verbose=FALSE)
+rules = apriori(caravan_df_factors,
+                parameter = apriori.parameter,
+               appearance = apriori.appearance,
+                control   = apriori.control)
+rules.by.lift=sort(rules,by='lift')
+inspect(rules[1:10])
+
+# COMMAND ----------
+
+# MAGIC %md Here, the results show something interesting with the CARAVAN variable. Anytime MSKD is 0, meaning no people in Social Class D, and CARAVAN is 0, there is a 157% lift in when 11%-23% of the zipcode population has an income of $123K or higher. Again, the support and control are low, but this can directionally inform us that the higher the economic and social status of a zipcode, the number of mobile home policies is less likely.
+
+# COMMAND ----------
+
+# MAGIC %md ## Conclusion
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC As mentioned earlier in the report, when looking into the Caravan variable, it's important to not that there were few instances were it was set to 1. This results in a small amount of support in the data set. We found that the farmer variable, contributions to car policies, and the number of fire policies created the most important association as that combination produced an environment where it was 250% more likely that Caravan would be 1 than if they were all independent. From this, we can make a directional conjecture that mobile home policies are more likely to occur in areas where there are no farmers and car insurance is widely used. This makes intuitive sense since Farming areas typically have homes with large amounts of land and one would not expect to see mobile homes in those areas.
+# MAGIC 
+# MAGIC For instance the highest support and confidence has the following rule: in 15.25% instances a customer buys CARAVAN insurance policy when he lives in the zip code which does not have farmers, Contribution car policies for the zip code are in the 6: 1000 - 4999 range and the number of Number of fire policies is within the 1-49 range; and this happens 2.5 times more often than it would be when there was no association between them. The next example the rule number five: in 17.45% of instances a customer buys the CARAVAN insurance policy when she lives in zip code where Contribution car policies for the zip code are in the 6: 1 000 - 4999 range and Contribution fire policies are in the 4: 200 - 499 range, and there's no Number of third party insurance (agriculture). Seemingly "agricultural" zip codes are not among those with CARAVN =1.
+# MAGIC 
+# MAGIC From our association analysis of other variables, we found that there was a large lift in no third party insurance when when specialized policies like moped, lorry, surfboard, and agriculture machine insurancees were zero. This also makes intuitive sense because when certain zipcodes did not have instances where these specific policies were used, there would not be as much of a need for third party insurance.
+# MAGIC 
+# MAGIC When looking at income variables, we found that when zipcodes had no population make under $30K and when there were no entreprenuers that it is more likely that a higher portion of that zipcode makes an income between $75K and $122K. Another income finding we noticed was that when a zipcode has no Social Class D inhabitants and Caravan is set to 0 (no mobile policies) there is a 157% lift in when 11%-23% of the zipcode population has an income of $123K or higher. The higher the economic and social status results in a lower likelihood in mobile home policies. These associations can help us understand the data more, but we did note that there was not a strong confidence or support for these income findings. With these findings, we should be more easily able to use this data set to make predictions or additional analyses by removing redundancies and understanding which variables would more likely serve as stronger predictors of certain outcomes.
